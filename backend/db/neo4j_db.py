@@ -1,6 +1,6 @@
 from typing import Any
 
-from neo4j import Driver, GraphDatabase, RoutingControl
+from neo4j import Driver, GraphDatabase, NotificationMinimumSeverity, RoutingControl
 
 from config import get_settings
 
@@ -19,6 +19,8 @@ def get_driver() -> Driver:
             connection_acquisition_timeout=10.0,
             # Default is 30s of retries, which leaves requests hanging when Neo4j is down.
             max_transaction_retry_time=5.0,
+            # Skip INFORMATION notices such as "constraint already exists" on every startup.
+            notifications_min_severity=NotificationMinimumSeverity.WARNING,
         )
     return _driver
 

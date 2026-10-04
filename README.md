@@ -131,6 +131,8 @@ pytest
 
 Tests need the Docker PostgreSQL running. They use a separate database, `adaptlearn_test`, which is created automatically and rebuilt on every run, so your development data is never touched. Set `TEST_DATABASE_URL` to use a different test database.
 
+Neo4j Community has only one database, so the seeder tests write to their own throwaway domain (`pytest-seed`) and delete it afterwards; the real curriculum is never modified. They are skipped if Neo4j is not running.
+
 ### Database tables
 
 On startup the backend creates any missing PostgreSQL tables with SQLAlchemy's `Base.metadata.create_all()`:
@@ -151,6 +153,34 @@ docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "DROP SCHEMA p
 Then restart the backend to recreate the tables. (Or `docker compose down -v` to wipe both databases.) Alembic migrations are the planned upgrade once real user data needs to survive schema changes.
 
 If PostgreSQL is down when the backend starts, tables are not created - restart the backend once the database is up.
+
+### Curriculum graph (Neo4j)
+
+The Web Development curriculum lives in [`backend/seed/curriculum.py`](backend/seed/curriculum.py): 30 topics (name, description, difficulty 1-4, 1-3 curated resources each) and 37 prerequisite edges. It is the single source of truth for the graph.
+
+On every backend startup it is validated (no duplicate ids, no edges to unknown topics, no prerequisite cycles, valid difficulty and resources) and written to Neo4j:
+
+- topics and edges are `MERGE`d, so repeated startups never create duplicates;
+- changed descriptions/resources are updated in place;
+- topics or edges removed from the file are removed from the graph (only within that domain);
+- everything happens in one transaction, so a failed seed never leaves a half-written graph;
+- a unique constraint on `Topic.id` and an index on `Topic.domain` are created if missing.
+
+To seed by hand (for example against Neo4j Aura), from `backend/` with the venv active:
+
+```bash
+python -m seed.seed_graph
+```
+
+To see the graph, open the Neo4j Browser at http://localhost:7474 (login `neo4j` / `password123`) and run:
+
+```cypher
+MATCH (t:Topic {domain: 'web-development'})
+OPTIONAL MATCH (t)-[r:PREREQUISITE_OF]->(next:Topic)
+RETURN t, r, next
+```
+
+Arrows point from a prerequisite to the topic it unlocks.
 
 ### Error responses
 
@@ -180,6 +210,7 @@ adaptlearn/
 │   ├── models/          # SQLAlchemy models (users, topic_progress, quiz_attempts, quiz_sessions)
 │   ├── schemas/         # Pydantic request/response schemas
 │   ├── routers/         # API routes
+│   ├── seed/            # Curriculum data + idempotent Neo4j seeder
 │   ├── services/        # Business logic (auth, BKT, quiz, learning path)
 │   └── tests/           # pytest suite (runs against adaptlearn_test)
 └── frontend/            # React application (built last)

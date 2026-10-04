@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-04
-**Current phase:** Phase 4 complete - Phase 5 (Neo4j Curriculum Seed) up next
+**Current phase:** Phase 5 complete - Phase 6 (Topics APIs) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -15,9 +15,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | 1 | Repository & Local Infrastructure | Done | `accb6cd` |
 | 2 | FastAPI Foundation | Done | `12a9d53` |
 | 3 | PostgreSQL Models | Done | `05cae53` |
-| 4 | Authentication | Done | latest |
-| 5 | Neo4j Curriculum Seed | Next | - |
-| 6 | Topics APIs | Pending | - |
+| 4 | Authentication | Done | `e786514` |
+| 5 | Neo4j Curriculum Seed | Done | latest |
+| 6 | Topics APIs | Next | - |
 | 7 | Onboarding & User Progress Initialization | Pending | - |
 | 8 | Learning Path Service | Pending | - |
 | 9 | BKT Service | Pending | - |
@@ -41,14 +41,14 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | Component | State |
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
-| Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy, empty (no curriculum yet) |
+| Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy. Holds the Web Development curriculum: 30 topics, 37 prerequisite edges, seeded on every backend startup |
 | Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | No API key set yet - not needed until Phase 10 (fallback bank covers it) |
 | Frontend | Not started - the UI is being built last |
-| Tests | 33 auth tests passing (`pytest` from `backend/`), run against the separate `adaptlearn_test` database |
+| Tests | 62 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain). PostgreSQL tests use the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -110,6 +110,10 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | Password: "required" | 8 characters minimum, 72 bytes maximum | Sensible minimum; 72 bytes is bcrypt's hard limit |
 | - | Unknown-email logins run a dummy bcrypt check | Same response time whether or not an account exists, so emails can't be probed |
 | - | Tests use a separate `adaptlearn_test` database | Dev data is never touched by test runs |
+| Index on `Topic.id` | Unique constraint `topic_id_unique` (backed by a range index) | Same lookup speed, plus the database rejects duplicate topic ids |
+| Seed with `MERGE` | `MERGE` + pruning of topics/edges no longer in `curriculum.py` (domain-scoped, one transaction) | Graph always mirrors the file exactly; editing the curriculum never leaves stale nodes |
+| Topic descriptions/resources unspecified | Written for all 30 topics; 81 resources (MDN, web.dev, javascript.info, react.dev, official docs, 10 videos), every URL verified live, videos verified via YouTube oEmbed | PRD requires 1-3 curated resources per topic |
+| - | `python -m seed.seed_graph` manual seed command | Seeding managed databases (Aura) without starting the API |
 
 ---
 
@@ -120,12 +124,13 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 - **Groq API key:** needed by Phase 10 for live quiz generation.
 - **Rate limiting:** login/register have no rate limit yet. Recommended by the PRD before public deployment (Phase 21).
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
+- **Resource links can rot:** all 81 URLs were live on 2026-10-04. Re-check them before deployment (Phase 21).
 - **Dev auto-reload under the assistant:** `uvicorn --reload` hangs on Windows when started without a console (the reloader can't deliver Ctrl+C to the worker). Doesn't affect running it in a normal terminal; the assistant restarts the server manually instead.
 
 ---
 
 ## Next step
 
-**Phase 5 - Neo4j Curriculum Seed:** all 30 Web Development topics with descriptions, difficulty 1-4 and curated resource links, the 37 prerequisite edges from ARCHITECTURE.md section 8, idempotent `MERGE`-based seeding on startup, and Neo4j indexes on `Topic.id` and `Topic.domain`.
+**Phase 6 - Topics APIs:** `GET /api/topics/all` (curriculum list with parsed resources) and `GET /api/topics/graph` (`{nodes, links}` with each node's status and mastery for the current user), matching ARCHITECTURE.md 13.4 and 13.7.
 
-Exit gate: exactly 30 topic nodes after repeated startups, no duplicated nodes or edges, and prerequisite direction is correct.
+Exit gate: `/topics/all` returns 30 topics, `/topics/graph` returns nodes + links, and both response shapes match the spec.

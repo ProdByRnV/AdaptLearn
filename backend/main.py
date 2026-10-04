@@ -9,6 +9,7 @@ from config import get_settings
 from db import neo4j_db, postgres
 from errors import catch_unhandled_errors, register_error_handlers
 from routers import auth, health
+from seed.seed_graph import seed_curriculum
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("adaptlearn")
@@ -29,8 +30,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         neo4j_db.check_connection()
         logger.info("Neo4j connection OK")
+        seed_curriculum()
     except Exception as exc:
-        logger.warning("Neo4j is not reachable at startup: %s", exc)
+        logger.warning("Neo4j is not ready at startup (curriculum not seeded; restart once it is up): %s", exc)
     yield
     neo4j_db.close_driver()
     postgres.engine.dispose()
