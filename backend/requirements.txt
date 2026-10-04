@@ -12,3 +12,6 @@ psycopg2-binary==2.9.13
 
 # Neo4j
 neo4j==6.3.1
+
+# Auth
+bcrypt==5.0.0

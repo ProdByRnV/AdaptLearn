@@ -104,6 +104,27 @@ uvicorn main:app --reload --port 8000
 
 The API starts even if a database is down; the startup log and `/api/health` say which one is unreachable.
 
+### Database tables
+
+On startup the backend creates any missing PostgreSQL tables with SQLAlchemy's `Base.metadata.create_all()`:
+
+| Table | Holds |
+|---|---|
+| `users` | Accounts (email stored lowercase, password stored only as a bcrypt hash) |
+| `topic_progress` | One row per user and topic: status, BKT probabilities, attempt counters, `needs_attention` flag |
+| `quiz_attempts` | Submitted quizzes with the full question snapshot, answers and mastery before/after |
+| `quiz_sessions` | Generated quizzes awaiting submission, including the server-side answer key |
+
+`create_all()` only creates tables that don't exist yet; it never alters existing ones. This keeps the MVP setup to a single command, but it means **schema changes need a reset in development**:
+
+```bash
+docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+```
+
+Then restart the backend to recreate the tables. (Or `docker compose down -v` to wipe both databases.) Alembic migrations are the planned upgrade once real user data needs to survive schema changes.
+
+If PostgreSQL is down when the backend starts, tables are not created - restart the backend once the database is up.
+
 ### Error responses
 
 Every API error returns JSON in the shape `{"detail": "Human-readable message"}`:
@@ -129,7 +150,7 @@ adaptlearn/
 │   ├── requirements.txt
 │   ├── .env.example
 │   ├── db/              # PostgreSQL + Neo4j connections
-│   ├── models/          # SQLAlchemy models
+│   ├── models/          # SQLAlchemy models (users, topic_progress, quiz_attempts, quiz_sessions)
 │   ├── schemas/         # Pydantic request/response schemas
 │   ├── routers/         # API routes
 │   └── services/        # Business logic (auth, BKT, quiz, learning path)

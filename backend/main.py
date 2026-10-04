@@ -20,12 +20,17 @@ settings = get_settings()
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Report connectivity on startup without refusing to boot, so /api/health
     # can still explain what is wrong if a database is down.
-    for name, check in (("PostgreSQL", postgres.check_connection), ("Neo4j", neo4j_db.check_connection)):
-        try:
-            check()
-            logger.info("%s connection OK", name)
-        except Exception as exc:
-            logger.warning("%s is not reachable at startup: %s", name, exc)
+    try:
+        postgres.check_connection()
+        postgres.init_db()
+        logger.info("PostgreSQL connection OK, tables ready")
+    except Exception as exc:
+        logger.warning("PostgreSQL is not ready at startup (tables not created; restart once it is up): %s", exc)
+    try:
+        neo4j_db.check_connection()
+        logger.info("Neo4j connection OK")
+    except Exception as exc:
+        logger.warning("Neo4j is not reachable at startup: %s", exc)
     yield
     neo4j_db.close_driver()
     postgres.engine.dispose()

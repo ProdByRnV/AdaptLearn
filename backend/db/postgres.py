@@ -32,3 +32,10 @@ def check_connection() -> None:
     """Raise if PostgreSQL is unreachable."""
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
+
+
+def init_db() -> None:
+    """Create any missing tables. Existing tables are left untouched (no migrations)."""
+    import models  # noqa: F401  - importing registers every model on Base.metadata
+
+    Base.metadata.create_all(bind=engine)
