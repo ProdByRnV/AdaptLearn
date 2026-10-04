@@ -104,6 +104,33 @@ uvicorn main:app --reload --port 8000
 
 The API starts even if a database is down; the startup log and `/api/health` say which one is unreachable.
 
+### Authentication
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `POST /api/auth/register` | `{"username", "email", "password"}` | `201` with `{access_token, token_type, user}`; `409` if the email is taken |
+| `POST /api/auth/login` | `{"email", "password"}` | `200` with the same shape; `401` for a wrong email or password |
+| `GET /api/auth/me` | - (needs `Authorization: Bearer <token>`) | The current user; `401` if the token is missing, invalid or expired |
+
+Rules:
+
+- Emails are case-insensitive (stored lowercase).
+- Passwords must be 8 characters to 72 bytes (bcrypt's limit) and are stored only as bcrypt hashes.
+- Tokens are HS256 JWTs signed with `JWT_SECRET_KEY`, valid for `ACCESS_TOKEN_EXPIRE_MINUTES` (default 7 days).
+- A failed login returns the same message whether or not the email exists.
+
+**Trying it in Swagger:** call `register` or `login`, copy the `access_token` from the response, click **Authorize** (top right), paste the token, then call `/api/auth/me`.
+
+### Running the tests
+
+With the venv activated, from `backend/`:
+
+```bash
+pytest
+```
+
+Tests need the Docker PostgreSQL running. They use a separate database, `adaptlearn_test`, which is created automatically and rebuilt on every run, so your development data is never touched. Set `TEST_DATABASE_URL` to use a different test database.
+
 ### Database tables
 
 On startup the backend creates any missing PostgreSQL tables with SQLAlchemy's `Base.metadata.create_all()`:
@@ -153,7 +180,8 @@ adaptlearn/
 │   ├── models/          # SQLAlchemy models (users, topic_progress, quiz_attempts, quiz_sessions)
 │   ├── schemas/         # Pydantic request/response schemas
 │   ├── routers/         # API routes
-│   └── services/        # Business logic (auth, BKT, quiz, learning path)
+│   ├── services/        # Business logic (auth, BKT, quiz, learning path)
+│   └── tests/           # pytest suite (runs against adaptlearn_test)
 └── frontend/            # React application (built last)
 ```
 
@@ -161,3 +189,4 @@ adaptlearn/
 
 - Never commit `.env` files; only `.env.example` (names and safe defaults) is tracked.
 - JWTs are stored in `localStorage` to match the reference design. For production hardening, move to secure HttpOnly cookies with refresh tokens.
+- Login and registration are not rate-limited yet; add rate limiting before a public deployment.

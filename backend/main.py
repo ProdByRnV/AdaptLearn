@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
 from db import neo4j_db, postgres
 from errors import catch_unhandled_errors, register_error_handlers
-from routers import health
+from routers import auth, health
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("adaptlearn")
@@ -57,6 +57,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 
 @app.get("/", tags=["health"])

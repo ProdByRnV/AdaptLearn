@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-04
-**Current phase:** Phase 3 complete - Phase 4 (Authentication) up next
+**Current phase:** Phase 4 complete - Phase 5 (Neo4j Curriculum Seed) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -14,9 +14,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 |---|---|---|---|
 | 1 | Repository & Local Infrastructure | Done | `accb6cd` |
 | 2 | FastAPI Foundation | Done | `12a9d53` |
-| 3 | PostgreSQL Models | Done | latest |
-| 4 | Authentication | Next | - |
-| 5 | Neo4j Curriculum Seed | Pending | - |
+| 3 | PostgreSQL Models | Done | `05cae53` |
+| 4 | Authentication | Done | latest |
+| 5 | Neo4j Curriculum Seed | Next | - |
 | 6 | Topics APIs | Pending | - |
 | 7 | Onboarding & User Progress Initialization | Pending | - |
 | 8 | Learning Path Service | Pending | - |
@@ -42,13 +42,13 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
 | Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy, empty (no curriculum yet) |
-| Backend | FastAPI app runs on `8000`: settings loader, PostgreSQL engine + `get_db()`, Neo4j driver wrapper, CORS, consistent error handling. Routes: `GET /`, `GET /api/health`, Swagger at `/docs` |
+| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | No API key set yet - not needed until Phase 10 (fallback bank covers it) |
 | Frontend | Not started - the UI is being built last |
-| Tests | None yet |
+| Tests | 33 auth tests passing (`pytest` from `backend/`), run against the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -106,6 +106,10 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | No index on `quiz_sessions.user_id` | Added | Supports per-user session lookups/cleanup |
 | `(user_id, topic_id)` index listed separately | Covered by the unique constraint's index | A second identical index would only slow writes |
 | `created_at` columns nullable | `NOT NULL` with `DEFAULT now()` | Every row always has a timestamp |
+| `OAuth2PasswordBearer` | `HTTPBearer` | Same `Authorization: Bearer` header for the frontend, but Swagger's Authorize box accepts a pasted token. `OAuth2PasswordBearer`'s Swagger flow posts form data, which doesn't match the JSON login contract |
+| Password: "required" | 8 characters minimum, 72 bytes maximum | Sensible minimum; 72 bytes is bcrypt's hard limit |
+| - | Unknown-email logins run a dummy bcrypt check | Same response time whether or not an account exists, so emails can't be probed |
+| - | Tests use a separate `adaptlearn_test` database | Dev data is never touched by test runs |
 
 ---
 
@@ -114,8 +118,7 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 - **Frontend React version:** recommended UI uses shadcn/ui, which targets React 19 + Tailwind v4, while the spec says React 18. Decide before Phase 13 (recommendation: React 19).
 - **BKT calibration (no action planned):** with the spec's fixed values, `p_know` can't fall below 0.40 after any answer, answer order strongly affects the result, and a single 3/3 quiz takes a new topic to ~0.99. Built as specified; revisit only if behaviour feels wrong in testing.
 - **Groq API key:** needed by Phase 10 for live quiz generation.
-- **Test client:** Starlette now warns that `TestClient` with `httpx` is deprecated in favour of `httpx2`. Pick the test HTTP client when test dependencies are added in Phase 4.
-- **bcrypt 72-byte limit:** `bcrypt` 5.x raises an error for passwords longer than 72 bytes instead of silently truncating. Phase 4 registration must validate password length so this becomes a clean 422, not a 500.
+- **Rate limiting:** login/register have no rate limit yet. Recommended by the PRD before public deployment (Phase 21).
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
 - **Dev auto-reload under the assistant:** `uvicorn --reload` hangs on Windows when started without a console (the reloader can't deliver Ctrl+C to the worker). Doesn't affect running it in a normal terminal; the assistant restarts the server manually instead.
 
@@ -123,6 +126,6 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Next step
 
-**Phase 4 - Authentication:** bcrypt hashing utility, JWT creation and verification, `get_current_user` dependency, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, plus the first pytest suite (register, duplicate email, password verify, wrong password, invalid token, expired token).
+**Phase 5 - Neo4j Curriculum Seed:** all 30 Web Development topics with descriptions, difficulty 1-4 and curated resource links, the 37 prerequisite edges from ARCHITECTURE.md section 8, idempotent `MERGE`-based seeding on startup, and Neo4j indexes on `Topic.id` and `Topic.domain`.
 
-Exit gate: in Swagger, register -> token -> `/auth/me` and login -> token -> `/auth/me` both work.
+Exit gate: exactly 30 topic nodes after repeated startups, no duplicated nodes or edges, and prerequisite direction is correct.
