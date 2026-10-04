@@ -10,7 +10,7 @@ An adaptive learning platform that builds a personalised learning path instead o
 
 The first fully seeded domain is **Web Development** (30 topics).
 
-See [PRD.md](PRD.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [ROADMAP.md](ROADMAP.md) for the full specification.
+See [PRD.md](PRD.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [ROADMAP.md](ROADMAP.md) for the full specification, and [PROJECT-STATE.md](PROJECT-STATE.md) for current progress.
 
 ## Tech stack
 
@@ -65,21 +65,57 @@ docker compose down        # remove containers, keep data
 docker compose down -v     # remove containers AND wipe all data
 ```
 
-### 2. Configure the backend
+### 2. Set up the backend environment
+
+All Python code runs inside a virtual environment named `venv` in the `backend` folder, so nothing is installed into your system Python.
 
 ```bash
 cd backend
+python -m venv venv          # Windows without python on PATH: py -3 -m venv venv
+
+# Activate it
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # macOS / Linux
+
+pip install -r requirements.txt
 cp .env.example .env
 ```
 
 Then edit `backend/.env`:
 
-- set `JWT_SECRET_KEY` to a random value, e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+- set `JWT_SECRET_KEY` to a random value, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"` (run inside the activated venv)
 - optionally set `GROQ_API_KEY`; without it, quizzes come from the fallback question bank
 
-> On Windows, if `python` is not on your PATH, use the launcher instead: `py -3`.
+The local database hosts default to `127.0.0.1` rather than `localhost`. On Windows, `localhost` also tries IPv6 first, which doubles the time it takes to notice a stopped database.
 
-Backend and frontend run instructions will be added here as those parts are built.
+### 3. Run the backend
+
+With the venv activated, from `backend/`:
+
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+| URL | What it shows |
+|---|---|
+| http://127.0.0.1:8000/ | API-running message |
+| http://127.0.0.1:8000/api/health | API, PostgreSQL and Neo4j status (`200` when all are up, `503` if a database is down) |
+| http://127.0.0.1:8000/docs | Swagger UI |
+
+The API starts even if a database is down; the startup log and `/api/health` say which one is unreachable.
+
+### Error responses
+
+Every API error returns JSON in the shape `{"detail": "Human-readable message"}`:
+
+| Status | When |
+|---|---|
+| `404` | Unknown route or resource |
+| `422` | Request validation failed; also includes an `errors` list of `{field, message}` |
+| `500` | Unexpected server error (details are logged, never sent to the client) |
+| `503` | PostgreSQL or Neo4j unavailable |
+
+Frontend run instructions will be added when the UI is built.
 
 ## Project structure
 
@@ -87,6 +123,10 @@ Backend and frontend run instructions will be added here as those parts are buil
 adaptlearn/
 ├── docker-compose.yml   # PostgreSQL + Neo4j for local development
 ├── backend/             # FastAPI application
+│   ├── main.py          # App entry point: middleware, routers, lifespan
+│   ├── config.py        # Settings loaded from .env
+│   ├── errors.py        # Consistent {"detail": ...} error handling
+│   ├── requirements.txt
 │   ├── .env.example
 │   ├── db/              # PostgreSQL + Neo4j connections
 │   ├── models/          # SQLAlchemy models
