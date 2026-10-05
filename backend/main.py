@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
 from db import neo4j_db, postgres
 from errors import catch_unhandled_errors, register_error_handlers
-from routers import auth, health
+from routers import auth, health, topics
 from seed.seed_graph import seed_curriculum
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -60,6 +60,7 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(topics.router, prefix="/api")
 
 
 @app.get("/", tags=["health"])

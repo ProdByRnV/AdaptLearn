@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
-**Last updated:** 2026-10-04
-**Current phase:** Phase 5 complete - Phase 6 (Topics APIs) up next
+**Last updated:** 2026-10-05
+**Current phase:** Phase 6 complete - Phase 7 (Onboarding & User Progress Initialization) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -16,9 +16,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | 2 | FastAPI Foundation | Done | `12a9d53` |
 | 3 | PostgreSQL Models | Done | `05cae53` |
 | 4 | Authentication | Done | `e786514` |
-| 5 | Neo4j Curriculum Seed | Done | latest |
-| 6 | Topics APIs | Next | - |
-| 7 | Onboarding & User Progress Initialization | Pending | - |
+| 5 | Neo4j Curriculum Seed | Done | `a314e72` |
+| 6 | Topics APIs | Done | latest |
+| 7 | Onboarding & User Progress Initialization | Next | - |
 | 8 | Learning Path Service | Pending | - |
 | 9 | BKT Service | Pending | - |
 | 10 | Groq Quiz Generation | Pending | - |
@@ -42,13 +42,13 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
 | Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy. Holds the Web Development curriculum: 30 topics, 37 prerequisite edges, seeded on every backend startup |
-| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, Swagger at `/docs` |
+| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | No API key set yet - not needed until Phase 10 (fallback bank covers it) |
 | Frontend | Not started - the UI is being built last |
-| Tests | 62 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain). PostgreSQL tests use the separate `adaptlearn_test` database |
+| Tests | 83 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API. PostgreSQL tests use the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -114,6 +114,10 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | Seed with `MERGE` | `MERGE` + pruning of topics/edges no longer in `curriculum.py` (domain-scoped, one transaction) | Graph always mirrors the file exactly; editing the curriculum never leaves stale nodes |
 | Topic descriptions/resources unspecified | Written for all 30 topics; 81 resources (MDN, web.dev, javascript.info, react.dev, official docs, 10 videos), every URL verified live, videos verified via YouTube oEmbed | PRD requires 1-3 curated resources per topic |
 | - | `python -m seed.seed_graph` manual seed command | Seeding managed databases (Aura) without starting the API |
+| Topics endpoints' auth unspecified | Both `/topics/all` and `/topics/graph` require a Bearer token | Only signed-in pages use them; keeps every non-auth endpoint protected |
+| Graph node fields (ARCHITECTURE 13.7) | Adds `mastered` and `prerequisites`; both responses also carry `domain` | The UI needs the mastered style and the prerequisite list for the detail panel without re-deriving them |
+| Graph query (ARCHITECTURE 9.2) | One query returns each topic with its prerequisite ids; links are built from it | One round trip serves both endpoints and the upcoming learning-path logic |
+| Status before progress rows exist | Derived from the graph (roots `unlocked`, rest `locked`, mastery 10%) | Graph is correct even before onboarding; stored rows always win once they exist |
 
 ---
 
@@ -131,6 +135,6 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Next step
 
-**Phase 6 - Topics APIs:** `GET /api/topics/all` (curriculum list with parsed resources) and `GET /api/topics/graph` (`{nodes, links}` with each node's status and mastery for the current user), matching ARCHITECTURE.md 13.4 and 13.7.
+**Phase 7 - Onboarding & User Progress Initialization:** `POST /api/topics/mark-known` creates the user's `topic_progress` rows for every topic, marks the chosen known topics (and, per decision 3, all their prerequisites) `completed` with `p_know = 0.95`, unlocks the resulting frontier and leaves the rest `locked`. Unknown topic ids are rejected.
 
-Exit gate: `/topics/all` returns 30 topics, `/topics/graph` returns nodes + links, and both response shapes match the spec.
+Exit gate: users with different onboarding selections get different starting frontiers (tests for none, some and all known topics, and invalid ids).

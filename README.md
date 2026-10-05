@@ -121,6 +121,17 @@ Rules:
 
 **Trying it in Swagger:** call `register` or `login`, copy the `access_token` from the response, click **Authorize** (top right), paste the token, then call `/api/auth/me`.
 
+### Topics
+
+Both endpoints need a Bearer token and take an optional `?domain=` (default and only supported value: `web-development`; anything else is `404`).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/topics/all` | `{domain, topics}`: every topic with `id`, `name`, `description`, `difficulty` and `resources` (`[{title, url, type}]`), ordered by difficulty then name |
+| `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`) and `prerequisites` (ids). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks |
+
+A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. The whole curriculum is read in one Neo4j query, so there are no per-topic lookups.
+
 ### Running the tests
 
 With the venv activated, from `backend/`:

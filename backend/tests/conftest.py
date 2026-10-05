@@ -84,3 +84,23 @@ def client(session_factory: sessionmaker) -> Generator[TestClient, None, None]:
     # Neo4j checks) does not run during tests.
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def make_user(client: TestClient):
+    """Register a user through the API. Returns (user_id, auth headers)."""
+    counter = 0
+
+    def _make(email: str | None = None) -> tuple[int, dict[str, str]]:
+        nonlocal counter
+        counter += 1
+        email = email or f"learner{counter}@example.com"
+        response = client.post(
+            "/api/auth/register",
+            json={"username": f"Learner {counter}", "email": email, "password": "StrongPassword123"},
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        return body["user"]["id"], {"Authorization": f"Bearer {body['access_token']}"}
+
+    return _make
