@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-05
-**Current phase:** Phase 11 complete - Phase 12 (Dashboard API) up next
+**Current phase:** Phase 12 complete - backend API finished; Phase 13 (React Foundation) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -22,9 +22,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | 8 | Learning Path Service | Done | `2bb7850` |
 | 9 | BKT Service | Done | `0f2e2fb` |
 | 10 | Groq Quiz Generation | Done | `86ffdf0` |
-| 11 | Quiz Submission & Progress Update | Done | latest |
-| 12 | Dashboard API | Next | - |
-| 13 | React Foundation | Pending | - |
+| 11 | Quiz Submission & Progress Update | Done | `fcba616` |
+| 12 | Dashboard API | Done | latest |
+| 13 | React Foundation | Next | - |
 | 14 | Login & Register UI | Pending | - |
 | 15 | Onboarding UI | Pending | - |
 | 16 | Dashboard UI | Pending | - |
@@ -42,13 +42,14 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
 | Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy. Holds the Web Development curriculum: 30 topics, 37 prerequisite edges, seeded on every backend startup |
-| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `GET /api/topics/learning-path`, `POST /api/topics/mark-known`, `GET /api/quiz/generate/{topic_id}`, `POST /api/quiz/submit`, Swagger at `/docs` |
+| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `GET /api/topics/learning-path`, `POST /api/topics/mark-known`, `GET /api/quiz/generate/{topic_id}`, `POST /api/quiz/submit`, `GET /api/progress/dashboard`, `GET /api/progress/all`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | API key set in `backend/.env`; model `openai/gpt-oss-120b` (reasoning effort low). Live quizzes generate in ~1.7-2.0s; without Groq the curated fallback bank is used |
+| Demo account | `demo@adaptlearn.dev` in the local dev database only (password shared outside the repo; not a real credential): onboarded with HTML Basics, then 6 real AI quizzes (CSS 3/3, Git 2/3, JavaScript 1/3, SQL 0/3, 1/3, 0/3), so the dashboard has real data and SQL Basics needs attention. Log in with it in Swagger (`/api/auth/login`, then Authorize). Remove with: `docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "delete from users where email='demo@adaptlearn.dev'"` |
 | Frontend | Not started - the UI is being built last |
-| Tests | 328 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 113 quiz generation + submission (mostly parametrized). Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database |
+| Tests | 346 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 114 quiz generation + submission (mostly parametrized), 17 dashboard/progress. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -132,6 +133,8 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | Options in generated order | Options shuffled per quiz, answer index remapped (AI and fallback) | Removes LLM answer-position bias; fallback questions don't always have the same answer slot |
 | Max 2 retries, ~10s timeout | Same, plus a 12s total budget; network/auth/rate-limit/5xx errors skip retries and use the fallback; Groq `400 json_validate_failed` counts as invalid output and is retried | Learner always gets a quiz inside the 15s browser timeout; retrying an unreachable service only adds waiting |
 | Quiz before onboarding unspecified | Progress rows are created as if onboarding with nothing known | Phase 11 always has a row to update |
+| Dashboard response (ARCHITECTURE 13.10) | Adds `domain`, `onboarded`, `curriculum_complete`; stats add `in_progress_topics` and `progress_percent`; `needs_attention` items include resources; recent attempts include topic name and mastery before/after; `mastery` lists every topic | One call covers every dashboard element in PRD section 9 (overall progress, attention resources, curriculum-complete state) |
+| `average_mastery` "across initialized topic progress" | Mean over the learner's progress rows; 0.0 before onboarding | Literal reading of the spec; avoids showing a made-up 10% for a learner with no data |
 | Wrong user's quiz "rejected" (status unspecified) | `404 Quiz not found`, same as an unknown id | Doesn't reveal that another user's quiz id exists |
 | Expired / already-submitted status unspecified | `410 Gone` for expired, `409 Conflict` for already submitted | Distinct, standard codes let the UI say "start a new quiz" vs "already submitted" |
 | Submit response (ARCHITECTURE 13.9) | Adds `newly_unlocked`; each feedback item adds `options` | UI can celebrate unlocked topics and render the result screen even after a page refresh |
@@ -144,7 +147,7 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 ## Open items
 
 - **Frontend React version:** recommended UI uses shadcn/ui, which targets React 19 + Tailwind v4, while the spec says React 18. Decide before Phase 13 (recommendation: React 19).
-- **BKT calibration (built as specified; now confirmed by tests):** with the PRD's fixed values, `p_know` can't fall below 0.40 after any answer and repeated wrong answers level off at 16/35 ≈ 0.457; the same 2/3 score ends at 0.76 or 0.98 depending on which answer was wrong; one 3/3 quiz takes a new topic to 0.989 (mastered). Knock-on for Phase 11: the confusion rule (`attempts > 2 and p_know < 0.50`) can only fire while a learner keeps getting most answers wrong, because almost any recent correct answer lifts `p_know` above 0.5. Revisit only if it feels wrong in testing.
+- **BKT calibration (built as specified; now confirmed by tests):** with the PRD's fixed values, `p_know` can't fall below 0.40 after any answer and repeated wrong answers level off at 16/35 ≈ 0.457; the same 2/3 score ends at 0.76 or 0.98 depending on which answer was wrong; one 3/3 quiz takes a new topic to 0.989 (mastered). Seen live in Phase 12: a **failed** 1/3 SQL quiz (wrong, wrong, right) raised mastery from 45.5% to 87.5%, so a learner can see a failed quiz next to a high mastery bar. Knock-on for Phase 11: the confusion rule (`attempts > 2 and p_know < 0.50`) can only fire while a learner keeps getting most answers wrong, because almost any recent correct answer lifts `p_know` above 0.5. Revisit only if it feels wrong in testing.
 - **Groq free-tier limits:** 1,000 requests/day and 8,000 tokens/minute (checked live 2026-10-05). A quiz uses about 800 tokens, so roughly 9-10 quizzes per minute across all users before Groq rate-limits; learners then get fallback questions automatically. Fine for development and demos; a paid tier is needed for real traffic.
 - **Groq model churn:** Groq has retired two Llama models during this project. If `openai/gpt-oss-120b` is retired, quizzes keep working via the fallback bank (logged as HTTP 4xx); switch `GROQ_MODEL` in `.env` - no code change needed.
 - **Fallback bank repeats:** it has exactly 3 questions per topic, so a learner who retakes a topic while Groq is down sees the same questions (options are reshuffled). Adding more questions per topic and sampling 3 would fix this.
@@ -159,6 +162,10 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Next step
 
-**Phase 12 - Dashboard API:** `GET /api/progress/dashboard` (one aggregated call: total, completed and mastered topics, average mastery, total attempts, next 3 topics, topics needing attention, last 5 attempts, mastery list joined with topic names - topic metadata fetched in one Neo4j query, no N+1) and `GET /api/progress/all`.
+**The backend API is complete** (Phases 1-12): auth, curriculum graph, onboarding, learning path, BKT, AI quizzes with fallback, submission and dashboard, all covered by 346 tests.
 
-Exit gate: Swagger shows real data for a user who has taken quizzes.
+**Phase 13 - React Foundation** (frontend begins): React + Vite + Tailwind, React Router, an Axios client with the JWT interceptor and 401 handling, AuthContext/useAuth, AppShell/Navbar and reusable loader/error/card/button components.
+
+**Decision needed first:** React 18 (as the spec says) or React 19 (recommended earlier, so current shadcn/ui and Tailwind v4 can be used). See the open item above.
+
+Exit gate: the app boots, routes render, and protected routes redirect correctly.

@@ -211,6 +211,26 @@ Model settings in `backend/.env`:
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | The spec's `llama3-8b-8192` and its successor `llama-3.1-8b-instant` are no longer offered by Groq. gpt-oss-120b produced the most precise questions in a comparison with gpt-oss-20b and qwen3.8-27b, at about 1-2s per quiz |
 | `GROQ_REASONING_EFFORT` | `low` | Only sent to reasoning models such as gpt-oss; leave empty for other models |
 
+### Progress and dashboard
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/progress/dashboard` | Everything the dashboard needs in one call (see below) |
+| `GET /api/progress/all` | `{topics: [{topic_id, status, p_know, attempts, correct, needs_attention}]}`: the learner's raw progress rows, ordered by topic id (empty before onboarding) |
+
+The dashboard response:
+
+| Field | Contents |
+|---|---|
+| `onboarded`, `curriculum_complete` | Whether to send the learner to onboarding, or show the curriculum-complete state |
+| `stats` | `total_topics`, `completed_topics`, `in_progress_topics`, `mastered_topics` (p_know >= 0.95), `average_mastery` (mean % over the learner's topics; 0 before onboarding), `total_attempts`, `progress_percent` (completed / total) |
+| `recommended` | The next 3 topics, the same cards as `/api/topics/learning-path` |
+| `needs_attention` | Flagged topics with mastery, attempt count and their learning resources |
+| `recent_attempts` | The latest 5 quizzes, newest first: topic name, score, pass/fail, mastery before → after, time |
+| `mastery` | Every topic with status, mastery % and mastered flag, easiest first |
+
+Topic names and resources come from a single Neo4j query joined in memory, so the dashboard makes exactly two Neo4j calls (topics + learning path) however much the learner has done. A test enforces this.
+
 ### Mastery tracking (Bayesian Knowledge Tracing)
 
 [`backend/services/bkt.py`](backend/services/bkt.py) holds the mastery model as pure functions with no database imports. `p_know` is the estimated probability that the learner knows a topic. After each quiz answer:

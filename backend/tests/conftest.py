@@ -100,6 +100,53 @@ def no_real_groq(monkeypatch):
     monkeypatch.setattr(llm_quiz, "call_groq", refuse)
 
 
+def sample_quiz_json() -> str:
+    """A valid 3-question quiz; option 0 ("Right answer N") is correct before shuffling."""
+    import json
+
+    return json.dumps(
+        {
+            "questions": [
+                {
+                    "question": f"Sample question number {n}?",
+                    "options": [f"Right answer {n}", f"Wrong A{n}", f"Wrong B{n}", f"Wrong C{n}"],
+                    "correct": 0,
+                    "explanation": f"Because answer {n} is right.",
+                }
+                for n in range(3)
+            ]
+        }
+    )
+
+
+@pytest.fixture()
+def fake_llm(monkeypatch):
+    """Script the LLM: each call returns (or raises) the next item in .script, else a valid quiz.
+
+    Records each call's messages and timeout in .calls. Also sets a dummy API key so the
+    Groq path (not the no-key fallback) is exercised.
+    """
+    from config import get_settings
+    from services import llm_quiz
+
+    class Fake:
+        def __init__(self):
+            self.script: list = []
+            self.calls: list = []
+
+        def __call__(self, messages, timeout):
+            self.calls.append({"messages": messages, "timeout": timeout})
+            item = self.script.pop(0) if self.script else sample_quiz_json()
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+    fake = Fake()
+    monkeypatch.setattr(llm_quiz, "call_groq", fake)
+    monkeypatch.setattr(get_settings(), "groq_api_key", "gsk_test_key")
+    return fake
+
+
 @pytest.fixture(scope="session")
 def curriculum() -> None:
     """Ensure the real web-development curriculum is in Neo4j (skip if Neo4j is down).

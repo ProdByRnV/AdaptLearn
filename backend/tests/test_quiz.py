@@ -58,26 +58,13 @@ def connection_error() -> groq.APIConnectionError:
     return groq.APIConnectionError(request=httpx.Request("POST", "https://api.groq.com"))
 
 
-@pytest.fixture()
-def fake_llm(monkeypatch):
-    """Script the LLM: each call returns (or raises) the next item. Records the calls."""
+# fake_llm (scripted LLM) comes from conftest.py; its default quiz equals VALID.
 
-    class Fake:
-        def __init__(self):
-            self.script: list = []
-            self.calls: list = []
 
-        def __call__(self, messages, timeout):
-            self.calls.append({"messages": messages, "timeout": timeout})
-            item = self.script.pop(0) if self.script else VALID
-            if isinstance(item, Exception):
-                raise item
-            return item
+def test_conftest_default_quiz_matches_valid():
+    from conftest import sample_quiz_json
 
-    fake = Fake()
-    monkeypatch.setattr(llm_quiz, "call_groq", fake)
-    monkeypatch.setattr(get_settings(), "groq_api_key", "gsk_test_key")
-    return fake
+    assert json.loads(sample_quiz_json()) == json.loads(VALID)
 
 
 @pytest.fixture()
