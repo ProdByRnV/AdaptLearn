@@ -179,6 +179,30 @@ How questions are produced ([`services/llm_quiz.py`](backend/services/llm_quiz.p
 
 Generating a quiz for an `unlocked` topic marks it `in_progress`. Completed topics can be retaken and stay completed. A learner who requests a quiz before onboarding gets their progress rows created first, as if they had onboarded with nothing selected.
 
+#### Submitting a quiz: `POST /api/quiz/submit`
+
+Body: `{"quiz_id": "<uuid>", "answers": [0, 2, 1]}`. Exactly 3 answers, each an integer 0-3, in question order.
+
+| Status | When |
+|---|---|
+| `200` | Scored and saved |
+| `404` | Quiz id unknown, **or it belongs to another user** (deliberately the same response, so quiz ids can't be probed) |
+| `409` | Quiz already submitted |
+| `410` | Quiz session expired (`QUIZ_SESSION_TTL_MINUTES`, default 30) |
+| `422` | Wrong number of answers, an index outside 0-3, or a non-integer |
+| `503` | A database became unavailable; **nothing was saved** and the same quiz can be submitted again |
+
+What happens, in one transaction:
+
+1. The quiz session is locked (`SELECT ... FOR UPDATE`), so two simultaneous submits can't both be scored.
+2. Answers are scored on the server against the stored key. The browser never sends a score.
+3. BKT updates `p_know` once per answer, in order, using the topic row's stored parameters.
+4. `attempts` goes up by 1 and `correct` by the score; a `quiz_attempts` row stores the full question snapshot, the answers and mastery before and after.
+5. **2/3 or better** marks the topic `completed` and unlocks any topics that are now learnable. A failed attempt leaves the topic `in_progress`, but a failed *retake* never undoes a completion.
+6. `needs_attention` is set when `attempts > 2` and `p_know < 0.50`, and cleared once that's no longer true.
+
+Response: `topic_id`, `score`, `total`, `passed`, `p_know_before`, `p_know_after`, `mastered`, `status`, `needs_attention`, `feedback` (per question: `question`, `options`, `selected`, `correct`, `is_correct`, `explanation`), `recommended_resources` (the topic's resources when the quiz was failed or the topic needs attention, otherwise empty), `newly_unlocked` (topic ids) and `next_topics` (the next 3 recommendations).
+
 Model settings in `backend/.env`:
 
 | Variable | Default | Notes |
