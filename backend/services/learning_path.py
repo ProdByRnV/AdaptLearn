@@ -89,12 +89,17 @@ def sync_statuses(db: Session, user_id: int, domain: str) -> list[TopicInfo]:
     """Unlock every topic on the user's frontier and lock the rest of the not-yet-started topics.
 
     Completed and in-progress rows are never changed here, so a completed topic is never relocked.
+    Frontier topics without a row (e.g. a topic added to the curriculum after onboarding) get one.
     Returns the frontier. Does not commit.
     """
     progress = get_progress_map(db, user_id)
     completed = [tid for tid, row in progress.items() if row.status == TopicStatus.COMPLETED]
     frontier = get_frontier(domain, completed)
     frontier_ids = {t.id for t in frontier}
+    missing = frontier_ids - progress.keys()
+    if missing:
+        ensure_progress_rows(db, user_id, missing)
+        progress = get_progress_map(db, user_id)
     for topic_id, row in progress.items():
         if row.status in (TopicStatus.LOCKED, TopicStatus.UNLOCKED):
             row.status = (TopicStatus.UNLOCKED if topic_id in frontier_ids else TopicStatus.LOCKED).value
@@ -122,6 +127,36 @@ def recommendations(
             }
         )
     return result
+
+
+def get_learning_path(db: Session, user_id: int, domain: str) -> dict[str, Any]:
+    """The next topics to learn (at most 3), easiest first.
+
+    Before onboarding (no progress rows) nothing is written: the starting frontier is returned with
+    onboarded=False so the client can send the learner to onboarding first. Otherwise statuses are
+    synced so any topic that has become learnable is stored as unlocked.
+    """
+    ensure_domain(domain)
+    progress = get_progress_map(db, user_id)
+    if not progress:
+        frontier = get_frontier(domain, [])
+        return {
+            "domain": domain,
+            "onboarded": False,
+            "curriculum_complete": False,
+            "recommended": recommendations(frontier, {}),
+        }
+
+    frontier = sync_statuses(db, user_id, domain)
+    db.commit()
+    progress = get_progress_map(db, user_id)
+    return {
+        "domain": domain,
+        "onboarded": True,
+        # In an acyclic prerequisite graph the frontier is only empty once every topic is completed.
+        "curriculum_complete": not frontier,
+        "recommended": recommendations(frontier, progress),
+    }
 
 
 def mark_known(db: Session, user_id: int, domain: str, topic_ids: list[str]) -> dict[str, Any]:

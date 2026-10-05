@@ -130,6 +130,16 @@ Both endpoints need a Bearer token and take an optional `?domain=` (default and 
 | `GET /api/topics/all` | `{domain, topics}`: every topic with `id`, `name`, `description`, `difficulty` and `resources` (`[{title, url, type}]`), ordered by difficulty then name |
 | `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`) and `prerequisites` (ids). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks |
 
+#### Learning path: `GET /api/topics/learning-path`
+
+Returns `{domain, onboarded, curriculum_complete, recommended}`. `recommended` holds at most 3 learnable topics: not completed, every prerequisite completed, ordered by difficulty then name. Topics already in progress are included with status `in_progress`.
+
+- **Before onboarding** (no progress rows): `onboarded` is `false`, the starting topics are returned, and nothing is written. The frontend uses this to send the learner to onboarding.
+- **After onboarding:** statuses are synced first, so any topic that has become learnable is stored as `unlocked`. A missing row for a learnable topic is recreated, and completed or in-progress topics are never changed.
+- **Everything completed:** `curriculum_complete` is `true` and `recommended` is empty.
+
+The same user state always gives the same answer.
+
 #### Onboarding: `POST /api/topics/mark-known`
 
 Body: `{"domain": "web-development", "topic_ids": ["html_basics", "css_basics"]}` (`topic_ids` may be empty; up to 100 ids).

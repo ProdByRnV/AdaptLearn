@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 
 from db.postgres import get_db
 from schemas.common import ErrorResponse
-from schemas.topics import GraphResponse, MarkKnownRequest, MarkKnownResponse, TopicOut, TopicsResponse
+from schemas.topics import (
+    GraphResponse,
+    LearningPathResponse,
+    MarkKnownRequest,
+    MarkKnownResponse,
+    TopicOut,
+    TopicsResponse,
+)
 from seed.curriculum import DOMAIN
 from services import learning_path, topic_service
 from services.auth_service import CurrentUser
@@ -52,6 +59,15 @@ def topic_graph(current_user: CurrentUser, db: DbSession, domain: DomainParam = 
     except UnknownDomainError:
         raise _unknown_domain(domain)
     return GraphResponse.model_validate(graph)
+
+
+@router.get("/learning-path", response_model=LearningPathResponse)
+def get_learning_path(current_user: CurrentUser, db: DbSession, domain: DomainParam = DOMAIN) -> LearningPathResponse:
+    try:
+        result = learning_path.get_learning_path(db, current_user.id, domain)
+    except UnknownDomainError:
+        raise _unknown_domain(domain)
+    return LearningPathResponse.model_validate(result)
 
 
 @router.post(

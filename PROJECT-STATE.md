@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-05
-**Current phase:** Phase 7 complete - Phase 8 (Learning Path Service) up next
+**Current phase:** Phase 8 complete - Phase 9 (BKT Service) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -18,9 +18,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | 4 | Authentication | Done | `e786514` |
 | 5 | Neo4j Curriculum Seed | Done | `a314e72` |
 | 6 | Topics APIs | Done | `242a2f0` |
-| 7 | Onboarding & User Progress Initialization | Done | latest |
-| 8 | Learning Path Service | Next | - |
-| 9 | BKT Service | Pending | - |
+| 7 | Onboarding & User Progress Initialization | Done | `d6df728` |
+| 8 | Learning Path Service | Done | latest |
+| 9 | BKT Service | Next | - |
 | 10 | Groq Quiz Generation | Pending | - |
 | 11 | Quiz Submission & Progress Update | Pending | - |
 | 12 | Dashboard API | Pending | - |
@@ -42,13 +42,13 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
 | Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy. Holds the Web Development curriculum: 30 topics, 37 prerequisite edges, seeded on every backend startup |
-| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `POST /api/topics/mark-known`, Swagger at `/docs` |
+| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `GET /api/topics/learning-path`, `POST /api/topics/mark-known`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | No API key set yet - not needed until Phase 10 (fallback bank covers it) |
 | Frontend | Not started - the UI is being built last |
-| Tests | 111 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier. PostgreSQL tests use the separate `adaptlearn_test` database |
+| Tests | 128 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path. PostgreSQL tests use the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -123,6 +123,9 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | Recommended item fields (ARCHITECTURE 13.6) | Adds `description` and `prerequisite_names` | Dashboard cards need the short description and a readable prerequisite summary (PRD section 9) |
 | Two frontier queries (decision 1) | One full-frontier query (spec 9.3 without `LIMIT`); recommendations are its first 3 | Same result as a separate `LIMIT 3` query with one round trip |
 | Onboarding re-submission unspecified | Additive and idempotent: never relocks, never lowers mastery, keeps `in_progress` | Safe against double submits and returning to onboarding |
+| Learning-path response `{recommended}` (ARCHITECTURE 13.6) | Adds `domain`, `onboarded` and `curriculum_complete` | Frontend can route un-onboarded users to onboarding and show the curriculum-complete state (PRD section 10) without extra calls |
+| Learning path before onboarding unspecified | Returns the starting topics and writes nothing | A GET shouldn't create data; rows are created by onboarding |
+| - | Status sync recreates a missing row for a learnable topic | Self-heals if a topic is added to `curriculum.py` after a user onboarded |
 
 ---
 
@@ -141,6 +144,6 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Next step
 
-**Phase 8 - Learning Path Service:** `GET /api/topics/learning-path` returning at most 3 learnable topics (difficulty, then name), syncing newly unlocked statuses, and handling users who haven't onboarded yet and the curriculum-complete case. The frontier query, status sync and recommendation builder already exist in `services/learning_path.py` from Phase 7.
+**Phase 9 - BKT Service:** `services/bkt.py` with `update_bkt()` (correct- and wrong-answer Bayesian updates, learning transition, clamping to 0..1) and `mastery_reached()`, using the PRD 6.4 defaults, independent of any database code. Unit tests with known numerical examples.
 
-Exit gate: the learning path is stable and deterministic for the same user state (tests: unmet prerequisite excluded, all prerequisites completed included, completed excluded, at most 3 returned).
+Exit gate: all BKT unit tests pass and the function has no database dependency.

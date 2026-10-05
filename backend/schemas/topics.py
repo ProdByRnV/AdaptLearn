@@ -66,6 +66,13 @@ class RecommendedTopic(BaseModel):
     prerequisite_names: list[str] = Field(description="Prerequisite topic names, same order as prerequisites")
 
 
+class LearningPathResponse(BaseModel):
+    domain: str
+    onboarded: bool = Field(description="False until the learner has completed onboarding")
+    curriculum_complete: bool = Field(description="True when every topic in the domain is completed")
+    recommended: list[RecommendedTopic] = Field(description="Next topics to learn (at most 3), easiest first")
+
+
 class MarkKnownResponse(BaseModel):
     message: str
     known_count: int = Field(description="Topics now marked known, including implied prerequisites")
