@@ -86,6 +86,20 @@ def client(session_factory: sessionmaker) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def no_real_groq(monkeypatch):
+    """Tests must never call the real Groq API (cost, rate limits, network flakiness).
+
+    Any test that reaches the LLM without installing a fake fails loudly here.
+    """
+    from services import llm_quiz
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("A test tried to call the real Groq API; install a fake call_groq")
+
+    monkeypatch.setattr(llm_quiz, "call_groq", refuse)
+
+
 @pytest.fixture(scope="session")
 def curriculum() -> None:
     """Ensure the real web-development curriculum is in Neo4j (skip if Neo4j is down).

@@ -156,6 +156,37 @@ Calling it again only adds knowledge: completed topics are never relocked, maste
 
 A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. The whole curriculum is read in one Neo4j query, so there are no per-topic lookups.
 
+### Quizzes
+
+#### Generating a quiz: `GET /api/quiz/generate/{topic_id}`
+
+Returns `{quiz_id, topic: {id, name}, questions: [{id, question, options}], expires_in_seconds, source}`: exactly 3 questions with 4 options each. **The response never contains the correct answers or explanations.** Those are stored server-side in `quiz_sessions` and only revealed when the quiz is submitted.
+
+| Status | When |
+|---|---|
+| `200` | Quiz created. `source` is `ai` (Groq) or `fallback` (curated question bank) |
+| `403` | The topic is still locked for this user |
+| `404` | Unknown topic id |
+| `503` | Groq failed and no fallback questions exist (cannot happen for the seeded curriculum) |
+
+How questions are produced ([`services/llm_quiz.py`](backend/services/llm_quiz.py)):
+
+1. **Groq** is asked for exactly 3 multiple-choice questions in JSON mode, with the topic's name, description, difficulty and domain in the prompt.
+2. The output is validated: valid JSON (accidental code fences stripped), exactly 3 distinct questions, exactly 4 distinct non-empty options each, `correct` a real integer 0-3, and a non-empty explanation.
+3. **Invalid output is retried** up to 2 more times. That includes Groq's own `400 json_validate_failed`.
+4. **Groq unavailable** (no API key, network error, timeout, auth error, rate limit or 5xx) skips straight to the **fallback bank** ([`seed/fallback_questions.py`](backend/seed/fallback_questions.py): 3 hand-written questions per topic). Each request times out after 10s, and retries stop after 12s in total, so the learner always gets a quiz before the browser times out.
+5. **Options are shuffled** for every quiz and the answer index is remapped, so the answer's position reveals nothing and LLM position bias disappears.
+
+Generating a quiz for an `unlocked` topic marks it `in_progress`. Completed topics can be retaken and stay completed. A learner who requests a quiz before onboarding gets their progress rows created first, as if they had onboarded with nothing selected.
+
+Model settings in `backend/.env`:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `GROQ_API_KEY` | empty | Empty means every quiz comes from the fallback bank |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | The spec's `llama3-8b-8192` and its successor `llama-3.1-8b-instant` are no longer offered by Groq. gpt-oss-120b produced the most precise questions in a comparison with gpt-oss-20b and qwen3.8-27b, at about 1-2s per quiz |
+| `GROQ_REASONING_EFFORT` | `low` | Only sent to reasoning models such as gpt-oss; leave empty for other models |
+
 ### Mastery tracking (Bayesian Knowledge Tracing)
 
 [`backend/services/bkt.py`](backend/services/bkt.py) holds the mastery model as pure functions with no database imports. `p_know` is the estimated probability that the learner knows a topic. After each quiz answer:

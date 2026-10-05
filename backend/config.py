@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 10080
 
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = "openai/gpt-oss-120b"
+    # Only sent to reasoning models (e.g. gpt-oss); empty means "don't send".
+    groq_reasoning_effort: str = "low"
 
     quiz_session_ttl_minutes: int = 30
 

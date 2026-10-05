@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 DOMAIN = "web-development"
+DOMAIN_NAME = "Web Development"
 
 ResourceType = Literal["docs", "video", "article"]
 RESOURCE_TYPES: tuple[str, ...] = ("docs", "video", "article")
