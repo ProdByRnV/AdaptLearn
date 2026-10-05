@@ -130,6 +130,20 @@ Both endpoints need a Bearer token and take an optional `?domain=` (default and 
 | `GET /api/topics/all` | `{domain, topics}`: every topic with `id`, `name`, `description`, `difficulty` and `resources` (`[{title, url, type}]`), ordered by difficulty then name |
 | `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`) and `prerequisites` (ids). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks |
 
+#### Onboarding: `POST /api/topics/mark-known`
+
+Body: `{"domain": "web-development", "topic_ids": ["html_basics", "css_basics"]}` (`topic_ids` may be empty; up to 100 ids).
+
+1. Every id is checked first. Any unknown id rejects the whole request with `400 {"detail": "Unknown topic ids: ..."}` and nothing is written.
+2. A known topic implies its prerequisites, so every ancestor of a selected topic (found with a variable-length Neo4j path query) is marked known too.
+3. The user gets one `topic_progress` row per topic (created with `INSERT ... ON CONFLICT DO NOTHING`, so a double submit is harmless).
+4. Known topics become `completed` with `p_know` of at least 0.95.
+5. Every topic whose prerequisites are all completed becomes `unlocked`; the rest stay `locked`.
+
+Response: `{message, known_count, added_prerequisites, recommended}`, where `recommended` holds the next 3 learnable topics (easiest first), each with `id`, `name`, `description`, `difficulty`, `status`, `mastery`, `prerequisites` and `prerequisite_names`.
+
+Calling it again only adds knowledge: completed topics are never relocked, mastery is never lowered, and topics already in progress keep that status.
+
 A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. The whole curriculum is read in one Neo4j query, so there are no per-topic lookups.
 
 ### Running the tests

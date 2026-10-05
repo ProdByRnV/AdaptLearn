@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 
 from db.postgres import get_db
 from schemas.common import ErrorResponse
-from schemas.topics import GraphResponse, TopicOut, TopicsResponse
+from schemas.topics import GraphResponse, MarkKnownRequest, MarkKnownResponse, TopicOut, TopicsResponse
 from seed.curriculum import DOMAIN
-from services import topic_service
+from services import learning_path, topic_service
 from services.auth_service import CurrentUser
+from services.learning_path import UnknownTopicsError
 from services.topic_service import UnknownDomainError
 
 router = APIRouter(
@@ -51,3 +52,20 @@ def topic_graph(current_user: CurrentUser, db: DbSession, domain: DomainParam = 
     except UnknownDomainError:
         raise _unknown_domain(domain)
     return GraphResponse.model_validate(graph)
+
+
+@router.post(
+    "/mark-known",
+    response_model=MarkKnownResponse,
+    responses={400: {"model": ErrorResponse, "description": "One or more topic ids do not exist"}},
+)
+def mark_known(payload: MarkKnownRequest, current_user: CurrentUser, db: DbSession) -> MarkKnownResponse:
+    try:
+        result = learning_path.mark_known(db, current_user.id, payload.domain, payload.topic_ids)
+    except UnknownDomainError:
+        raise _unknown_domain(payload.domain)
+    except UnknownTopicsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown topic ids: {', '.join(exc.topic_ids)}"
+        )
+    return MarkKnownResponse.model_validate(result)

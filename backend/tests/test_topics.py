@@ -9,10 +9,8 @@ Skipped automatically when Neo4j is not reachable.
 import pytest
 from neo4j.exceptions import ServiceUnavailable
 
-from db import neo4j_db
 from models import TopicProgress
 from seed.curriculum import PREREQUISITES, TOPICS
-from seed.seed_graph import seed_curriculum
 from services import topic_service
 from services.topic_service import parse_resources
 
@@ -20,13 +18,7 @@ ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
 SPEC_NODE_FIELDS = {"id", "name", "description", "difficulty", "status", "mastery", "resources"}
 
 
-@pytest.fixture(scope="module", autouse=True)
-def seeded_curriculum():
-    try:
-        neo4j_db.check_connection()
-    except Exception as exc:
-        pytest.skip(f"Neo4j not reachable: {exc}")
-    seed_curriculum()
+pytestmark = pytest.mark.usefixtures("curriculum")
 
 
 def _add_progress(db, user_id, topic_id, status, p_know=0.10):

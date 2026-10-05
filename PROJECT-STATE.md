@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-05
-**Current phase:** Phase 6 complete - Phase 7 (Onboarding & User Progress Initialization) up next
+**Current phase:** Phase 7 complete - Phase 8 (Learning Path Service) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -17,9 +17,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | 3 | PostgreSQL Models | Done | `05cae53` |
 | 4 | Authentication | Done | `e786514` |
 | 5 | Neo4j Curriculum Seed | Done | `a314e72` |
-| 6 | Topics APIs | Done | latest |
-| 7 | Onboarding & User Progress Initialization | Next | - |
-| 8 | Learning Path Service | Pending | - |
+| 6 | Topics APIs | Done | `242a2f0` |
+| 7 | Onboarding & User Progress Initialization | Done | latest |
+| 8 | Learning Path Service | Next | - |
 | 9 | BKT Service | Pending | - |
 | 10 | Groq Quiz Generation | Pending | - |
 | 11 | Quiz Submission & Progress Update | Pending | - |
@@ -42,13 +42,13 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
 | Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy. Holds the Web Development curriculum: 30 topics, 37 prerequisite edges, seeded on every backend startup |
-| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, Swagger at `/docs` |
+| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `POST /api/topics/mark-known`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | No API key set yet - not needed until Phase 10 (fallback bank covers it) |
 | Frontend | Not started - the UI is being built last |
-| Tests | 83 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API. PostgreSQL tests use the separate `adaptlearn_test` database |
+| Tests | 111 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier. PostgreSQL tests use the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -118,6 +118,11 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | Graph node fields (ARCHITECTURE 13.7) | Adds `mastered` and `prerequisites`; both responses also carry `domain` | The UI needs the mastered style and the prerequisite list for the detail panel without re-deriving them |
 | Graph query (ARCHITECTURE 9.2) | One query returns each topic with its prerequisite ids; links are built from it | One round trip serves both endpoints and the upcoming learning-path logic |
 | Status before progress rows exist | Derived from the graph (roots `unlocked`, rest `locked`, mastery 10%) | Graph is correct even before onboarding; stored rows always win once they exist |
+| Unknown topic ids "rejected" (status unspecified) | `400 Unknown topic ids: ...`, checked before any write | PRD lists 400 for business-rule errors; all-or-nothing keeps progress consistent |
+| `mark-known` response `{message, known_count, recommended}` | Adds `added_prerequisites`; `known_count` includes implied prerequisites | Lets onboarding UI say which earlier topics were filled in automatically |
+| Recommended item fields (ARCHITECTURE 13.6) | Adds `description` and `prerequisite_names` | Dashboard cards need the short description and a readable prerequisite summary (PRD section 9) |
+| Two frontier queries (decision 1) | One full-frontier query (spec 9.3 without `LIMIT`); recommendations are its first 3 | Same result as a separate `LIMIT 3` query with one round trip |
+| Onboarding re-submission unspecified | Additive and idempotent: never relocks, never lowers mastery, keeps `in_progress` | Safe against double submits and returning to onboarding |
 
 ---
 
@@ -128,6 +133,7 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 - **Groq API key:** needed by Phase 10 for live quiz generation.
 - **Rate limiting:** login/register have no rate limit yet. Recommended by the PRD before public deployment (Phase 21).
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
+- **Recommendation ranking (built as specified, worth revisiting):** the spec ranks the frontier by difficulty then name, so easy side topics always come first. In the live check, a learner who marked React Hooks as known was recommended Git Basics, Semantic HTML and Arrays & Objects ahead of React Router, the same top 3 as a learner who only knew HTML/CSS/JS. A track-aware ranking (e.g. prefer topics that unlock what the learner just finished) could be a later enhancement.
 - **Resource links can rot:** all 81 URLs were live on 2026-10-04. Re-check them before deployment (Phase 21).
 - **Dev auto-reload under the assistant:** `uvicorn --reload` hangs on Windows when started without a console (the reloader can't deliver Ctrl+C to the worker). Doesn't affect running it in a normal terminal; the assistant restarts the server manually instead.
 
@@ -135,6 +141,6 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Next step
 
-**Phase 7 - Onboarding & User Progress Initialization:** `POST /api/topics/mark-known` creates the user's `topic_progress` rows for every topic, marks the chosen known topics (and, per decision 3, all their prerequisites) `completed` with `p_know = 0.95`, unlocks the resulting frontier and leaves the rest `locked`. Unknown topic ids are rejected.
+**Phase 8 - Learning Path Service:** `GET /api/topics/learning-path` returning at most 3 learnable topics (difficulty, then name), syncing newly unlocked statuses, and handling users who haven't onboarded yet and the curriculum-complete case. The frontier query, status sync and recommendation builder already exist in `services/learning_path.py` from Phase 7.
 
-Exit gate: users with different onboarding selections get different starting frontiers (tests for none, some and all known topics, and invalid ids).
+Exit gate: the learning path is stable and deterministic for the same user state (tests: unmet prerequisite excluded, all prerequisites completed included, completed excluded, at most 3 returned).

@@ -86,6 +86,22 @@ def client(session_factory: sessionmaker) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(scope="session")
+def curriculum() -> None:
+    """Ensure the real web-development curriculum is in Neo4j (skip if Neo4j is down).
+
+    Runs the same idempotent seeder as backend startup; tests only read the curriculum.
+    """
+    from db import neo4j_db
+    from seed.seed_graph import seed_curriculum
+
+    try:
+        neo4j_db.check_connection()
+    except Exception as exc:
+        pytest.skip(f"Neo4j not reachable: {exc}")
+    seed_curriculum()
+
+
 @pytest.fixture()
 def make_user(client: TestClient):
     """Register a user through the API. Returns (user_id, auth headers)."""

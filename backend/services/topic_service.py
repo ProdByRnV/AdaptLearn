@@ -25,9 +25,9 @@ SUPPORTED_DOMAINS: tuple[str, ...] = (DOMAIN,)
 TOPICS_WITH_PREREQUISITES = """
 MATCH (t:Topic {domain: $domain})
 OPTIONAL MATCH (pre:Topic {domain: $domain})-[:PREREQUISITE_OF]->(t)
-WITH t, collect(pre.id) AS prerequisites
+WITH t, collect(pre {.id, .name}) AS prereqs
 RETURN t.id AS id, t.name AS name, t.description AS description,
-       t.difficulty AS difficulty, t.resources AS resources, prerequisites
+       t.difficulty AS difficulty, t.resources AS resources, prereqs
 ORDER BY t.difficulty ASC, t.name ASC
 """
 
@@ -44,6 +44,7 @@ class TopicInfo:
     difficulty: int
     resources: list[dict[str, str]] = field(default_factory=list)
     prerequisites: list[str] = field(default_factory=list)
+    prerequisite_names: list[str] = field(default_factory=list)
 
 
 def ensure_domain(domain: str) -> None:
@@ -70,17 +71,21 @@ def get_topics(domain: str = DOMAIN) -> list[TopicInfo]:
     """All topics in a domain with their prerequisite ids, ordered by difficulty then name."""
     ensure_domain(domain)
     rows = neo4j_db.read(TOPICS_WITH_PREREQUISITES, domain=domain)
-    return [
-        TopicInfo(
-            id=row["id"],
-            name=row["name"],
-            description=row["description"],
-            difficulty=row["difficulty"],
-            resources=parse_resources(row["resources"]),
-            prerequisites=sorted(row["prerequisites"]),
+    topics = []
+    for row in rows:
+        prereqs = sorted(row["prereqs"], key=lambda p: p["id"])
+        topics.append(
+            TopicInfo(
+                id=row["id"],
+                name=row["name"],
+                description=row["description"],
+                difficulty=row["difficulty"],
+                resources=parse_resources(row["resources"]),
+                prerequisites=[p["id"] for p in prereqs],
+                prerequisite_names=[p["name"] for p in prereqs],
+            )
         )
-        for row in rows
-    ]
+    return topics
 
 
 def get_progress_map(db: Session, user_id: int) -> dict[str, TopicProgress]:
