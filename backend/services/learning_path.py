@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from db import neo4j_db
 from models import TopicProgress, TopicStatus
-from models.models import DEFAULT_P_KNOW, MASTERY_THRESHOLD
+from services.bkt import DEFAULT_P_KNOW, MASTERY_THRESHOLD
 from services.topic_service import TopicInfo, ensure_domain, get_progress_map, get_topics, parse_resources, to_percent
 
 logger = logging.getLogger("adaptlearn")

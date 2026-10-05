@@ -22,12 +22,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from db.postgres import Base
 
-# BKT defaults (PRD 6.4). Kept here so the Python default and the database default never drift apart.
-DEFAULT_P_KNOW = 0.10
-DEFAULT_P_LEARN = 0.40
-DEFAULT_P_SLIP = 0.10
-DEFAULT_P_GUESS = 0.20
-MASTERY_THRESHOLD = 0.95
+# BKT defaults (PRD 6.4) come from the BKT service, so the column defaults, the database
+# server defaults and the algorithm always use the same values.
+from services.bkt import DEFAULT_P_GUESS, DEFAULT_P_KNOW, DEFAULT_P_LEARN, DEFAULT_P_SLIP
 
 BCRYPT_HASH_PATTERN = re.compile(r"^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$")
 

@@ -156,6 +156,28 @@ Calling it again only adds knowledge: completed topics are never relocked, maste
 
 A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. The whole curriculum is read in one Neo4j query, so there are no per-topic lookups.
 
+### Mastery tracking (Bayesian Knowledge Tracing)
+
+[`backend/services/bkt.py`](backend/services/bkt.py) holds the mastery model as pure functions with no database imports. `p_know` is the estimated probability that the learner knows a topic. After each quiz answer:
+
+1. **Bayesian update**: how likely is it that they knew it, given the answer?
+   - correct: `p_know*(1-p_slip) / (p_know*(1-p_slip) + (1-p_know)*p_guess)`
+   - wrong: `p_know*p_slip / (p_know*p_slip + (1-p_know)*(1-p_guess))`
+2. **Learning transition**: they may have learned from the attempt: `posterior + (1-posterior)*p_learn`.
+
+Fixed parameters for every user and topic: `p_know=0.10` to start, `p_learn=0.40`, `p_guess=0.20`, `p_slip=0.10`. A topic counts as **mastered** at `p_know >= 0.95`. The three answers of a quiz are applied in order with `update_bkt_sequence()`.
+
+What these values mean in practice (starting from 0.10):
+
+| Answers | p_know after each answer |
+|---|---|
+| ✓ ✓ ✓ | 0.60, 0.92, 0.99 (mastered after one perfect quiz) |
+| ✓ ✓ ✗ | 0.60, 0.92, 0.76 |
+| ✗ ✓ ✓ | 0.41, 0.85, 0.98 |
+| ✗ ✗ ✗ | 0.41, 0.45, 0.46 |
+
+The order of answers matters for the same score. Because `p_learn` is added after every answer, `p_know` never drops below 0.40 once a question has been answered, and repeated wrong answers level off at 16/35 ≈ 0.457.
+
 ### Running the tests
 
 With the venv activated, from `backend/`:

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from db import neo4j_db
 from models import TopicProgress, TopicStatus
-from models.models import DEFAULT_P_KNOW, MASTERY_THRESHOLD
+from services.bkt import DEFAULT_P_KNOW, mastery_reached
 from seed.curriculum import DOMAIN
 
 logger = logging.getLogger("adaptlearn")
@@ -129,7 +129,7 @@ def build_graph(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str, An
                 "difficulty": topic.difficulty,
                 "status": status,
                 "mastery": to_percent(p_know),
-                "mastered": p_know >= MASTERY_THRESHOLD,
+                "mastered": mastery_reached(p_know),
                 "prerequisites": topic.prerequisites,
                 "resources": topic.resources,
             }

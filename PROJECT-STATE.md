@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-05
-**Current phase:** Phase 8 complete - Phase 9 (BKT Service) up next
+**Current phase:** Phase 9 complete - Phase 10 (Groq Quiz Generation) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -19,9 +19,9 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | 5 | Neo4j Curriculum Seed | Done | `a314e72` |
 | 6 | Topics APIs | Done | `242a2f0` |
 | 7 | Onboarding & User Progress Initialization | Done | `d6df728` |
-| 8 | Learning Path Service | Done | latest |
-| 9 | BKT Service | Next | - |
-| 10 | Groq Quiz Generation | Pending | - |
+| 8 | Learning Path Service | Done | `2bb7850` |
+| 9 | BKT Service | Done | latest |
+| 10 | Groq Quiz Generation | Next | - |
 | 11 | Quiz Submission & Progress Update | Pending | - |
 | 12 | Dashboard API | Pending | - |
 | 13 | React Foundation | Pending | - |
@@ -48,7 +48,7 @@ Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gat
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions` - created automatically on backend startup (`create_all`), currently empty |
 | Groq | No API key set yet - not needed until Phase 10 (fallback bank covers it) |
 | Frontend | Not started - the UI is being built last |
-| Tests | 128 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path. PostgreSQL tests use the separate `adaptlearn_test` database |
+| Tests | 215 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT (mostly parametrized cases). PostgreSQL tests use the separate `adaptlearn_test` database |
 
 ### Start the local environment
 
@@ -126,13 +126,16 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | Learning-path response `{recommended}` (ARCHITECTURE 13.6) | Adds `domain`, `onboarded` and `curriculum_complete` | Frontend can route un-onboarded users to onboarding and show the curriculum-complete state (PRD section 10) without extra calls |
 | Learning path before onboarding unspecified | Returns the starting topics and writes nothing | A GET shouldn't create data; rows are created by onboarding |
 | - | Status sync recreates a missing row for a learnable topic | Self-heals if a topic is added to `curriculum.py` after a user onboarded |
+| BKT constants location unspecified | `DEFAULT_P_*` and `MASTERY_THRESHOLD` live in `services/bkt.py`; models and services import them from there | One source for the algorithm, column defaults and DB server defaults, and `bkt.py` stays free of database imports (exit gate) |
+| `update_bkt()` + `mastery_reached()` (ARCHITECTURE 11) | Also `update_bkt_sequence()` returning p_know after each answer | Phase 11 applies the 3 answers in order; the per-answer trail is useful for the result screen |
+| Input handling unspecified | Probabilities outside 0..1 (and NaN) raise `ValueError`; a zero denominator (only possible at the extremes) leaves the belief unchanged before the learning step | Bad inputs fail loudly instead of producing silent nonsense; no division by zero |
 
 ---
 
 ## Open items
 
 - **Frontend React version:** recommended UI uses shadcn/ui, which targets React 19 + Tailwind v4, while the spec says React 18. Decide before Phase 13 (recommendation: React 19).
-- **BKT calibration (no action planned):** with the spec's fixed values, `p_know` can't fall below 0.40 after any answer, answer order strongly affects the result, and a single 3/3 quiz takes a new topic to ~0.99. Built as specified; revisit only if behaviour feels wrong in testing.
+- **BKT calibration (built as specified; now confirmed by tests):** with the PRD's fixed values, `p_know` can't fall below 0.40 after any answer and repeated wrong answers level off at 16/35 ≈ 0.457; the same 2/3 score ends at 0.76 or 0.98 depending on which answer was wrong; one 3/3 quiz takes a new topic to 0.989 (mastered). Knock-on for Phase 11: the confusion rule (`attempts > 2 and p_know < 0.50`) can only fire while a learner keeps getting most answers wrong, because almost any recent correct answer lifts `p_know` above 0.5. Revisit only if it feels wrong in testing.
 - **Groq API key:** needed by Phase 10 for live quiz generation.
 - **Rate limiting:** login/register have no rate limit yet. Recommended by the PRD before public deployment (Phase 21).
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
@@ -144,6 +147,8 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Next step
 
-**Phase 9 - BKT Service:** `services/bkt.py` with `update_bkt()` (correct- and wrong-answer Bayesian updates, learning transition, clamping to 0..1) and `mastery_reached()`, using the PRD 6.4 defaults, independent of any database code. Unit tests with known numerical examples.
+**Phase 10 - Groq Quiz Generation:** Groq client with the model from `GROQ_MODEL`, a strict JSON system prompt, Pydantic + business validation of the 3 questions, up to 2 retries, a curated fallback question bank (`seed/fallback_questions.py`) for when Groq is unavailable or no key is set, a request timeout, and `GET /api/quiz/generate/{topic_id}`, which stores the answer key in `quiz_sessions` and returns only sanitised questions.
 
-Exit gate: all BKT unit tests pass and the function has no database dependency.
+Exit gate: the response contains a quiz id and 3 questions with 4 options each and **no correct answers**, and the Groq-unavailable case still produces a quiz.
+
+**Needs from you:** a Groq API key in `backend/.env` (`GROQ_API_KEY=...`, free at console.groq.com) to test live generation. Everything else, including the fallback path, works without it.
