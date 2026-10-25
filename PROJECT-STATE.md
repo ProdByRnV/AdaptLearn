@@ -1,6 +1,6 @@
 # AdaptLearn - Project State
 
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-26
 **Current phase:** Phase 12 complete - backend API finished; Phase 13 (React Foundation) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
@@ -8,7 +8,7 @@
 
 ## Phase progress
 
-Phases follow [ROADMAP.md](ROADMAP.md). A phase is only ticked once its exit gate has been verified.
+Phases follow the project roadmap (a private specification document, not in this repository). A phase is only ticked once its exit gate has been verified.
 
 | # | Phase | Status | Commit |
 |---|---|---|---|
@@ -82,14 +82,50 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 5. **Mastery units:** stored and computed as `0..1`; API fields named `mastery` are percentages.
 6. **Groq model:** `GROQ_MODEL` defaults to `openai/gpt-oss-120b` with `GROQ_REASONING_EFFORT=low`. The spec's `llama3-8b-8192` and the originally agreed `llama-3.1-8b-instant` have both been retired by Groq; gpt-oss-120b was chosen in Phase 10 after comparing it with gpt-oss-20b and qwen3.8-27b on real quiz prompts.
 7. **Password hashing:** use the `bcrypt` library directly, not `passlib` (unmaintained, breaks on recent `bcrypt` and Python 3.13).
+8. **Frontend stack:** React 19 + Vite + Tailwind CSS v4 + shadcn/ui (decided 2026-10-26; the spec says React 18). Current shadcn/ui targets React 19 and Tailwind v4, and React 19 is a minor-version change that the PRD's "do not replace React + Vite" rule doesn't forbid.
+9. **Colour palette:** the whole UI follows `AdaptLearn.pdf` (local-only design reference, git-ignored). Exact values are in **Design palette** below.
 
 ### Working conventions
 
 - All Python runs inside `backend/venv`; nothing is installed into the system Python.
 - Each completed phase is committed and pushed with a detailed write-up in the commit message.
 - `.env` files are created locally when needed and never committed.
+- `AdaptLearn.pdf` (the design reference for the colour palette) stays local and is git-ignored.
+- A detailed phase-by-phase record, `SO-FAR.docx`, is kept locally and updated after every phase. It and its generator (`.so-far/`) are git-ignored and never pushed.
 
 ---
+
+## Design palette
+
+Extracted exactly from the drawing commands in `AdaptLearn.pdf` (not eyeballed from screenshots). Every value is a Tailwind default colour, so the frontend can use Tailwind classes directly.
+
+| Role | Tailwind | Hex | Used in the PDF for |
+|---|---|---|---|
+| Ink / dark background | slate-900 | `#0F172A` | Headings, cover background |
+| Body text | slate-700 | `#334155` | Paragraph text |
+| Muted text, lines | slate-500 | `#64748B` | Captions, footers, graph edges |
+| Border | slate-300 | `#CBD5E1` | Card and table borders |
+| Subtle border | slate-200 | `#E2E8F0` | Dividers |
+| Surface | slate-100 | `#F1F5F9` | Panels, table stripes |
+| Card | slate-50 | `#F8FAFC` | Card backgrounds |
+| Primary | teal-700 | `#0F766E` | Buttons, headers, chart bars, number badges |
+| Primary dark | teal-900 | `#134E4A` | Callout bars, inner boxes |
+| Accent light | teal-100 | `#CCFBF1` | Light highlights |
+| Accent on dark | teal-200 | `#99F6E4` | Subtitle text on the dark cover |
+
+**Topic status colours** (the cover's legend - these replace the spec's graph colours):
+
+| Status | Tailwind | Hex |
+|---|---|---|
+| Completed | teal-500 | `#14B8A6` |
+| In progress | amber-500 | `#F59E0B` |
+| Unlocked | teal-200 | `#99F6E4` |
+| Locked | slate-500 | `#64748B` |
+
+Notes for the frontend:
+
+- The only red in the PDF is inside an embedded chart image, so it can't be read exactly. Use red-600 `#DC2626` for errors so it stays within Tailwind's palette.
+- Amber, mint (teal-200) and teal-500 are too light for text on white (contrast below WCAG AA). Use them as fills (graph nodes, badges with dark text) or as text only on the dark slate-900 background, as the PDF's cover does.
 
 ## Deviations from the spec
 
@@ -99,6 +135,8 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 | `GROQ_MODEL=llama3-8b-8192` | `openai/gpt-oss-120b` + `GROQ_REASONING_EFFORT=low` | Llama chat models are no longer offered by Groq; gpt-oss-120b gave the most precise questions at ~1-2s (vs gpt-oss-20b 0.9s but vaguer, qwen3.8-27b 1.2s) |
 | `frontend/.env.example` in Phase 1 | Deferred to frontend phase | UI is being built last |
 | `UI.md` required | Not present - ignored for now | UI design to be decided at the frontend stage |
+| Graph colours (ARCHITECTURE 19: completed `#0F766E`, in progress `#0EA5E9`, unlocked `#5EEAD4`, locked `#94A3B8`) | `AdaptLearn.pdf` palette: `#14B8A6` / `#F59E0B` / `#99F6E4` / `#64748B` | Owner decision: the whole UI follows the PDF palette |
+| React 18 | React 19 (+ Tailwind v4, shadcn/ui) | Current shadcn/ui targets React 19; owner delegated the choice |
 | `localhost` in local DB URLs | `127.0.0.1` | On Windows, `localhost` also tries IPv6, doubling outage detection time |
 | Health route not specified in file layout | Added `routers/health.py` + `schemas/health.py` | Keeps `main.py` thin; spec allows small helper files |
 | Error handling location unspecified | Added `errors.py` | One place for the `{"detail": ...}` contract |
@@ -146,7 +184,7 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 ## Open items
 
-- **Frontend React version:** recommended UI uses shadcn/ui, which targets React 19 + Tailwind v4, while the spec says React 18. Decide before Phase 13 (recommendation: React 19).
+- **Proctoring (proposed, awaiting decisions):** owner wants Groq quizzes completed with genuine authority. A layered proposal was made on 2026-10-26: server-enforced integrity (question-by-question delivery, timing, attempt limits), browser monitoring (tab switches, fullscreen, paste), optional on-device webcam checks, and an integrity score that decides whether an attempt counts. Not in the original PRD/roadmap; needs a decision on scope, camera use and what a flagged attempt means before it is scheduled.
 - **BKT calibration (built as specified; now confirmed by tests):** with the PRD's fixed values, `p_know` can't fall below 0.40 after any answer and repeated wrong answers level off at 16/35 ≈ 0.457; the same 2/3 score ends at 0.76 or 0.98 depending on which answer was wrong; one 3/3 quiz takes a new topic to 0.989 (mastered). Seen live in Phase 12: a **failed** 1/3 SQL quiz (wrong, wrong, right) raised mastery from 45.5% to 87.5%, so a learner can see a failed quiz next to a high mastery bar. Knock-on for Phase 11: the confusion rule (`attempts > 2 and p_know < 0.50`) can only fire while a learner keeps getting most answers wrong, because almost any recent correct answer lifts `p_know` above 0.5. Revisit only if it feels wrong in testing.
 - **Groq free-tier limits:** 1,000 requests/day and 8,000 tokens/minute (checked live 2026-10-05). A quiz uses about 800 tokens, so roughly 9-10 quizzes per minute across all users before Groq rate-limits; learners then get fallback questions automatically. Fine for development and demos; a paid tier is needed for real traffic.
 - **Groq model churn:** Groq has retired two Llama models during this project. If `openai/gpt-oss-120b` is retired, quizzes keep working via the fallback bank (logged as HTTP 4xx); switch `GROQ_MODEL` in `.env` - no code change needed.
@@ -166,6 +204,8 @@ These resolve gaps found while reviewing the spec. They apply to all later phase
 
 **Phase 13 - React Foundation** (frontend begins): React + Vite + Tailwind, React Router, an Axios client with the JWT interceptor and 401 handling, AuthContext/useAuth, AppShell/Navbar and reusable loader/error/card/button components.
 
-**Decision needed first:** React 18 (as the spec says) or React 19 (recommended earlier, so current shadcn/ui and Tailwind v4 can be used). See the open item above.
+Stack decided: React 19 + Vite + Tailwind v4 + shadcn/ui, styled with the **Design palette** above.
+
+**Decision needed first:** the proctoring scope (open item above), since the server-side part may be built before the frontend.
 
 Exit gate: the app boots, routes render, and protected routes redirect correctly.

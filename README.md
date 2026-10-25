@@ -10,7 +10,7 @@ An adaptive learning platform that builds a personalised learning path instead o
 
 The first fully seeded domain is **Web Development** (30 topics).
 
-See [PRD.md](PRD.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [ROADMAP.md](ROADMAP.md) for the full specification, and [PROJECT-STATE.md](PROJECT-STATE.md) for current progress.
+See [PROJECT-STATE.md](PROJECT-STATE.md) for current progress. The specification documents (PRD, architecture and roadmap) are kept privately and are not part of this repository.
 
 ## Tech stack
 

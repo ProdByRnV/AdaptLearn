@@ -35,3 +35,15 @@ build/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Local-only files: progress document + generator, design reference PDF (never pushed)
+SO-FAR.docx
+~$SO-FAR.docx
+.so-far/
+AdaptLearn.pdf
+
+# Specification documents - kept locally, never pushed
+PRD.md
+ROADMAP.md
+ARCHITECTURE.md
+UI.md
