@@ -12,6 +12,7 @@ class DashboardStats(BaseModel):
     mastered_topics: int = Field(description="Topics with p_know >= 0.95")
     average_mastery: float = Field(description="Mean mastery % across the learner's initialised topics")
     total_attempts: int = Field(description="Quizzes submitted")
+    flagged_attempts: int = Field(description="Submitted quizzes that failed the integrity check and didn't count")
     progress_percent: float = Field(description="Completed topics as a % of the curriculum")
 
 
@@ -34,6 +35,9 @@ class RecentAttempt(BaseModel):
     mastery_before: float
     mastery_after: float
     created_at: datetime
+    counted: bool = Field(description="False when the attempt was flagged by proctoring and changed no progress")
+    integrity_verdict: str | None = Field(description="verified / flagged; null for attempts made before proctoring")
+    integrity_score: int | None
 
 
 class MasteryItem(BaseModel):

@@ -41,7 +41,9 @@ Each question must contain:
 - correct: integer 0-3, the index of the correct option
 - explanation: concise string explaining why the correct option is right
 Do not use "All of the above" or "None of the above".
-Questions should test understanding, not obscure trivia, and match the stated difficulty."""
+Questions should test understanding, not obscure trivia, and match the stated difficulty.
+Prefer applied questions - a short scenario or code snippet the learner must reason about - over
+definitions that could be looked up in seconds."""
 
 DIFFICULTY_LABELS = {1: "beginner", 2: "early intermediate", 3: "intermediate", 4: "advanced"}
 

@@ -156,52 +156,75 @@ Calling it again only adds knowledge: completed topics are never relocked, maste
 
 A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. The whole curriculum is read in one Neo4j query, so there are no per-topic lookups.
 
-### Quizzes
+### Quizzes (proctored)
 
-#### Generating a quiz: `GET /api/quiz/generate/{topic_id}`
+Every quiz is proctored. The server enforces timing and order (layer 1) and scores integrity signals reported by the quiz page (layer 2). An attempt that fails the integrity check is recorded but **doesn't count**: mastery, progress and unlocks stay unchanged.
 
-Returns `{quiz_id, topic: {id, name}, questions: [{id, question, options}], expires_in_seconds, source}`: exactly 3 questions with 4 options each. **The response never contains the correct answers or explanations.** Those are stored server-side in `quiz_sessions` and only revealed when the quiz is submitted.
+The flow:
+
+| Step | Endpoint | What it does |
+|---|---|---|
+| 1 | `GET /api/quiz/generate/{topic_id}` | Creates the quiz and returns `{quiz_id, topic, total_questions, answered_questions, seconds_per_question, expires_in_seconds, source, proctoring}`. **No questions yet.** Starting a quiz abandons any unfinished one (abandoned quizzes never count) |
+| 2 | `POST /api/quiz/{quiz_id}/next` | Serves the current question `{question_id, number, total, question, options, deadline, seconds_remaining}` and starts its timer (`QUIZ_SECONDS_PER_QUESTION`, default 60). Calling it again returns the **same** question with the time left, so reloading never resets the clock |
+| 3 | `POST /api/quiz/{quiz_id}/answer` | `{"question_id": 0, "answer": 2}` locks in the answer. After the deadline (plus 2 s grace) the answer is refused and the question counts as wrong. Answers can't be changed and earlier questions can't be reopened |
+| - | `POST /api/quiz/{quiz_id}/events` | The page reports proctoring signals, up to 100 per request: `heartbeat` (every 5 s), `tab_hidden`, `window_blur`, `fullscreen_exit`, `copy_attempt`, `paste_attempt`, `context_menu`, `multiple_screens` |
+| 4 | `POST /api/quiz/submit` | `{"quiz_id": "..."}` scores the quiz, judges integrity and, if verified, updates progress |
+| - | `GET /api/quiz/active` | `{active: ...}`: the learner's unfinished quiz, so the page can resume after a reload |
+
+No response before submission ever contains an answer or explanation; the answer key stays in `quiz_sessions` on the server.
 
 | Status | When |
 |---|---|
-| `200` | Quiz created. `source` is `ai` (Groq) or `fallback` (curated question bank) |
-| `403` | The topic is still locked for this user |
-| `404` | Unknown topic id |
-| `503` | Groq failed and no fallback questions exist (cannot happen for the seeded curriculum) |
+| `403` | Generate: the topic is still locked for this user |
+| `404` | Unknown topic, or a quiz id that is unknown **or belongs to another user** (same response, so ids can't be probed) |
+| `409` | The quiz was already submitted; or `/next` after the last question; or `/answer` for a question that isn't open |
+| `410` | The quiz session expired (`QUIZ_SESSION_TTL_MINUTES`, default 30) |
+| `422` | Invalid input, e.g. an answer outside 0-3, an unknown event type, or an old-style `answers` list on submit |
+| `429` | Generate: more than `QUIZ_MAX_PER_TOPIC_PER_HOUR` (5) quizzes for one topic or `QUIZ_MAX_PER_HOUR` (30) overall in the last hour. Includes a `Retry-After` header, and is checked **before** the AI is called |
+| `503` | A database or the AI (with no fallback) is unavailable; on submit, nothing was saved |
 
-How questions are produced ([`services/llm_quiz.py`](backend/services/llm_quiz.py)):
+#### Integrity scoring
 
-1. **Groq** is asked for exactly 3 multiple-choice questions in JSON mode, with the topic's name, description, difficulty and domain in the prompt.
+Each submitted quiz starts at **100** and loses points per signal ([`services/proctoring.py`](backend/services/proctoring.py)):
+
+| Signal | Penalty |
+|---|---|
+| Switched tab (`tab_hidden`) | 10 each |
+| Switched window (`window_blur`) | 5 each |
+| Left fullscreen | 15 each |
+| Copy or paste attempt | 10 each |
+| Right-click menu | 5 each |
+| Second screen detected | 20 (once) |
+| Answered in under 3 seconds (server-measured) | 10 each |
+| Heartbeat silence over 15 seconds (server-measured) | 15 each |
+| No heartbeat at all, i.e. monitoring wasn't running | 50 (once) |
+
+**80 or more is verified** and counts. **Below 80 is flagged**: the attempt and its reasons are saved, the result and explanations are still shown, but progress doesn't change. The rules and the threshold are returned by `/generate` so the page can show them before the quiz starts.
+
+#### How questions are produced
+
+[`services/llm_quiz.py`](backend/services/llm_quiz.py):
+
+1. **Groq** is asked for exactly 3 multiple-choice questions in JSON mode, with the topic's name, description, difficulty and domain in the prompt, preferring applied scenario or code questions over definitions that can be looked up quickly.
 2. The output is validated: valid JSON (accidental code fences stripped), exactly 3 distinct questions, exactly 4 distinct non-empty options each, `correct` a real integer 0-3, and a non-empty explanation.
 3. **Invalid output is retried** up to 2 more times. That includes Groq's own `400 json_validate_failed`.
-4. **Groq unavailable** (no API key, network error, timeout, auth error, rate limit or 5xx) skips straight to the **fallback bank** ([`seed/fallback_questions.py`](backend/seed/fallback_questions.py): 3 hand-written questions per topic). Each request times out after 10s, and retries stop after 12s in total, so the learner always gets a quiz before the browser times out.
+4. **Groq unavailable** (no API key, network error, timeout, auth error, rate limit or 5xx) skips straight to the **fallback bank** ([`seed/fallback_questions.py`](backend/seed/fallback_questions.py): 3 hand-written questions per topic). Each request times out after 10s, and retries stop after 12s in total.
 5. **Options are shuffled** for every quiz and the answer index is remapped, so the answer's position reveals nothing and LLM position bias disappears.
 
 Generating a quiz for an `unlocked` topic marks it `in_progress`. Completed topics can be retaken and stay completed. A learner who requests a quiz before onboarding gets their progress rows created first, as if they had onboarded with nothing selected.
 
-#### Submitting a quiz: `POST /api/quiz/submit`
+#### What submission does
 
-Body: `{"quiz_id": "<uuid>", "answers": [0, 2, 1]}`. Exactly 3 answers, each an integer 0-3, in question order.
+In one transaction (the quiz session and progress rows are locked, so two simultaneous submits can't both be scored):
 
-| Status | When |
-|---|---|
-| `200` | Scored and saved |
-| `404` | Quiz id unknown, **or it belongs to another user** (deliberately the same response, so quiz ids can't be probed) |
-| `409` | Quiz already submitted |
-| `410` | Quiz session expired (`QUIZ_SESSION_TTL_MINUTES`, default 30) |
-| `422` | Wrong number of answers, an index outside 0-3, or a non-integer |
-| `503` | A database became unavailable; **nothing was saved** and the same quiz can be submitted again |
+1. Answers are scored on the server against the stored key. Timed-out, unanswered and never-served questions count as wrong. The browser never sends a score.
+2. Integrity is scored as above.
+3. **If verified:** BKT updates `p_know` once per answer, in order; `attempts` goes up by 1 and `correct` by the score; **2/3 or better** completes the topic and unlocks what's now learnable (a failed retake never undoes a completion); `needs_attention` is set when `attempts > 2` and `p_know < 0.50`. **If flagged:** none of that happens.
+4. A `quiz_attempts` row stores the question snapshot, answers and mastery before and after, and `quiz_integrity` stores the verdict.
 
-What happens, in one transaction:
+If any step fails (for example Neo4j drops), nothing is saved and the quiz can be submitted again.
 
-1. The quiz session is locked (`SELECT ... FOR UPDATE`), so two simultaneous submits can't both be scored.
-2. Answers are scored on the server against the stored key. The browser never sends a score.
-3. BKT updates `p_know` once per answer, in order, using the topic row's stored parameters.
-4. `attempts` goes up by 1 and `correct` by the score; a `quiz_attempts` row stores the full question snapshot, the answers and mastery before and after.
-5. **2/3 or better** marks the topic `completed` and unlocks any topics that are now learnable. A failed attempt leaves the topic `in_progress`, but a failed *retake* never undoes a completion.
-6. `needs_attention` is set when `attempts > 2` and `p_know < 0.50`, and cleared once that's no longer true.
-
-Response: `topic_id`, `score`, `total`, `passed`, `p_know_before`, `p_know_after`, `mastered`, `status`, `needs_attention`, `feedback` (per question: `question`, `options`, `selected`, `correct`, `is_correct`, `explanation`), `recommended_resources` (the topic's resources when the quiz was failed or the topic needs attention, otherwise empty), `newly_unlocked` (topic ids) and `next_topics` (the next 3 recommendations).
+Response: `topic_id`, `score`, `total`, `passed`, `p_know_before`, `p_know_after`, `mastered`, `status`, `needs_attention`, `feedback` (per question: `question`, `options`, `selected` (null if unanswered), `correct`, `is_correct`, `timed_out`, `explanation`), `recommended_resources`, `newly_unlocked`, `next_topics` and `integrity` (`score`, `verdict`, `counted`, `reasons`).
 
 Model settings in `backend/.env`:
 
@@ -223,10 +246,10 @@ The dashboard response:
 | Field | Contents |
 |---|---|
 | `onboarded`, `curriculum_complete` | Whether to send the learner to onboarding, or show the curriculum-complete state |
-| `stats` | `total_topics`, `completed_topics`, `in_progress_topics`, `mastered_topics` (p_know >= 0.95), `average_mastery` (mean % over the learner's topics; 0 before onboarding), `total_attempts`, `progress_percent` (completed / total) |
+| `stats` | `total_topics`, `completed_topics`, `in_progress_topics`, `mastered_topics` (p_know >= 0.95), `average_mastery` (mean % over the learner's topics; 0 before onboarding), `total_attempts`, `flagged_attempts` (failed the integrity check; didn't count), `progress_percent` (completed / total) |
 | `recommended` | The next 3 topics, the same cards as `/api/topics/learning-path` |
 | `needs_attention` | Flagged topics with mastery, attempt count and their learning resources |
-| `recent_attempts` | The latest 5 quizzes, newest first: topic name, score, pass/fail, mastery before → after, time |
+| `recent_attempts` | The latest 5 quizzes, newest first: topic name, score, pass/fail, mastery before → after, time, and `counted` / `integrity_verdict` / `integrity_score` (null verdict for attempts made before proctoring) |
 | `mastery` | Every topic with status, mastery % and mastered flag, easiest first |
 
 Topic names and resources come from a single Neo4j query joined in memory, so the dashboard makes exactly two Neo4j calls (topics + learning path) however much the learner has done. A test enforces this.
@@ -275,6 +298,9 @@ On startup the backend creates any missing PostgreSQL tables with SQLAlchemy's `
 | `topic_progress` | One row per user and topic: status, BKT probabilities, attempt counters, `needs_attention` flag |
 | `quiz_attempts` | Submitted quizzes with the full question snapshot, answers and mastery before/after |
 | `quiz_sessions` | Generated quizzes awaiting submission, including the server-side answer key |
+| `quiz_responses` | One row per served question: when it was served, its deadline, the answer and whether it timed out |
+| `proctoring_events` | Signals reported by the quiz page (heartbeats, tab switches, ...) with trusted server receive times |
+| `quiz_integrity` | The integrity verdict per quiz: score, verified / flagged / abandoned, whether it counted, reasons |
 
 `create_all()` only creates tables that don't exist yet; it never alters existing ones. This keeps the MVP setup to a single command, but it means **schema changes need a reset in development**:
 

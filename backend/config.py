@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     groq_reasoning_effort: str = "low"
 
     quiz_session_ttl_minutes: int = 30
+    # Proctoring (Phase 12.5): per-question time limit and quiz generation limits.
+    quiz_seconds_per_question: int = 60
+    quiz_max_per_topic_per_hour: int = 5
+    quiz_max_per_hour: int = 30
 
     @field_validator("database_url")
     @classmethod

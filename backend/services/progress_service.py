@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from models import QuizAttempt, TopicProgress, TopicStatus
+from models import QuizAttempt, QuizIntegrity, TopicProgress, TopicStatus
 from seed.curriculum import DOMAIN
 from services.bkt import mastery_reached
 from services.learning_path import get_learning_path
@@ -32,6 +32,12 @@ def build_dashboard(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str
     rows = [row for topic_id, row in progress.items() if topic_id in topic_by_id]
     completed = sum(1 for row in rows if row.status == TopicStatus.COMPLETED)
     total_attempts = db.scalar(select(func.count()).select_from(QuizAttempt).where(QuizAttempt.user_id == user_id))
+    flagged_attempts = db.scalar(
+        select(func.count())
+        .select_from(QuizIntegrity)
+        .join(QuizAttempt, QuizAttempt.id == QuizIntegrity.attempt_id)
+        .where(QuizAttempt.user_id == user_id, QuizIntegrity.counted.is_(False))
+    )
 
     stats = {
         "total_topics": len(topics),
@@ -41,6 +47,7 @@ def build_dashboard(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str
         # Average over the learner's initialised topics (ARCHITECTURE.md 16); 0 before onboarding.
         "average_mastery": round(sum(row.p_know for row in rows) / len(rows) * 100, 1) if rows else 0.0,
         "total_attempts": total_attempts,
+        "flagged_attempts": flagged_attempts,
         "progress_percent": _percent_of(completed, len(topics)),
     }
 
@@ -63,6 +70,12 @@ def build_dashboard(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str
         .order_by(QuizAttempt.created_at.desc(), QuizAttempt.id.desc())
         .limit(RECENT_ATTEMPTS_LIMIT)
     ).all()
+    integrity_by_attempt = {
+        record.attempt_id: record
+        for record in db.scalars(
+            select(QuizIntegrity).where(QuizIntegrity.attempt_id.in_([a.id for a in recent]))
+        )
+    }
     recent_attempts = [
         {
             "id": attempt.id,
@@ -75,6 +88,10 @@ def build_dashboard(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str
             "mastery_before": to_percent(attempt.p_know_before),
             "mastery_after": to_percent(attempt.p_know_after),
             "created_at": attempt.created_at,
+            # Attempts from before proctoring (Phase 12.5) have no integrity record and always counted.
+            "counted": integrity_by_attempt[attempt.id].counted if attempt.id in integrity_by_attempt else True,
+            "integrity_verdict": integrity_by_attempt[attempt.id].verdict if attempt.id in integrity_by_attempt else None,
+            "integrity_score": integrity_by_attempt[attempt.id].score if attempt.id in integrity_by_attempt else None,
         }
         for attempt in recent
     ]

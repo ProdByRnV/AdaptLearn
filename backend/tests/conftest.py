@@ -147,6 +147,92 @@ def fake_llm(monkeypatch):
     return fake
 
 
+class FakeClock:
+    """Controls the time the quiz service sees (deadlines, heartbeats, rate limits)."""
+
+    def __init__(self):
+        from datetime import datetime, timezone
+
+        self.now = datetime.now(timezone.utc)
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        from datetime import timedelta
+
+        self.now += timedelta(seconds=seconds)
+
+
+@pytest.fixture()
+def clock(monkeypatch) -> FakeClock:
+    from services import quiz_service
+
+    fake = FakeClock()
+    monkeypatch.setattr(quiz_service, "utc_now", fake)
+    return fake
+
+
+@pytest.fixture()
+def quiz_taker(client: TestClient, session_factory: sessionmaker, clock: FakeClock):
+    """Take a whole proctored quiz through the API, the way an honest quiz page would.
+
+    pattern: one letter per question - C correct, W wrong, T timed out (no answer before the deadline).
+    Each question is answered after `seconds` (default 10), with a heartbeat every 5 seconds.
+    `events` (proctoring events) are reported during the first question. After submitting, the clock
+    moves on `cooldown_minutes` so repeated quizzes stay under the hourly limit.
+    Returns the submit response body.
+    """
+    from config import get_settings
+    from models import QuizSession
+    from services.quiz_service import ANSWER_GRACE_SECONDS
+
+    def heartbeat(headers, quiz_id):
+        response = client.post(f"/api/quiz/{quiz_id}/events", json={"events": [{"type": "heartbeat"}]}, headers=headers)
+        assert response.status_code == 200, response.text
+
+    def wait(headers, quiz_id, seconds, heartbeats):
+        elapsed = 0
+        while elapsed < seconds:
+            step = min(5, seconds - elapsed)
+            clock.advance(step)
+            elapsed += step
+            if heartbeats:
+                heartbeat(headers, quiz_id)
+
+    def take(headers, topic_id, pattern, *, seconds=10, heartbeats=True, events=(), cooldown_minutes=13):
+        generated = client.get(f"/api/quiz/generate/{topic_id}", headers=headers)
+        assert generated.status_code == 200, generated.text
+        quiz_id = generated.json()["quiz_id"]
+        with session_factory() as s:
+            key = [q["correct"] for q in s.get(QuizSession, quiz_id).questions]
+
+        for index, letter in enumerate(pattern):
+            served = client.post(f"/api/quiz/{quiz_id}/next", headers=headers)
+            assert served.status_code == 200, served.text
+            if heartbeats:
+                heartbeat(headers, quiz_id)
+            if index == 0 and events:
+                reported = client.post(f"/api/quiz/{quiz_id}/events", json={"events": list(events)}, headers=headers)
+                assert reported.status_code == 200, reported.text
+            if letter == "T":
+                wait(headers, quiz_id, get_settings().quiz_seconds_per_question + ANSWER_GRACE_SECONDS + 1, heartbeats)
+                answer = 0
+            else:
+                wait(headers, quiz_id, seconds, heartbeats)
+                answer = key[index] if letter == "C" else (key[index] + 1) % 4
+            ack = client.post(f"/api/quiz/{quiz_id}/answer", json={"question_id": index, "answer": answer}, headers=headers)
+            assert ack.status_code == 200, ack.text
+            assert ack.json()["timed_out"] is (letter == "T")
+
+        submitted = client.post("/api/quiz/submit", json={"quiz_id": quiz_id}, headers=headers)
+        assert submitted.status_code == 200, submitted.text
+        clock.advance(cooldown_minutes * 60)
+        return submitted.json()
+
+    return take
+
+
 @pytest.fixture(scope="session")
 def curriculum() -> None:
     """Ensure the real web-development curriculum is in Neo4j (skip if Neo4j is down).

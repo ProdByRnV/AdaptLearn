@@ -8,7 +8,6 @@ import pytest
 from sqlalchemy import select
 
 from db import neo4j_db
-from models import QuizSession
 from seed.curriculum import TOPICS
 
 pytestmark = pytest.mark.usefixtures("curriculum", "fake_llm")
@@ -29,17 +28,6 @@ def dashboard(client, headers, **params):
 def onboard(client, headers, topic_ids=()):
     response = client.post("/api/topics/mark-known", json={"topic_ids": sorted(topic_ids)}, headers=headers)
     assert response.status_code == 200, response.text
-
-
-def take_quiz(client, headers, db, topic_id, pattern):
-    """Generate a quiz and answer it following a pattern such as CCW (correct, correct, wrong)."""
-    quiz_id = client.get(f"/api/quiz/generate/{topic_id}", headers=headers).json()["quiz_id"]
-    db.expire_all()
-    key = [q["correct"] for q in db.get(QuizSession, quiz_id).questions]
-    answers = [k if p == "C" else (k + 1) % 4 for k, p in zip(key, pattern)]
-    response = client.post("/api/quiz/submit", json={"quiz_id": quiz_id, "answers": answers}, headers=headers)
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 # --- Access -------------------------------------------------------------------------
@@ -78,7 +66,7 @@ def test_dashboard_before_onboarding(client, make_user):
     assert body["onboarded"] is False
     assert body["stats"] == {
         "total_topics": 30, "completed_topics": 0, "in_progress_topics": 0, "mastered_topics": 0,
-        "average_mastery": 0.0, "total_attempts": 0, "progress_percent": 0.0,
+        "average_mastery": 0.0, "total_attempts": 0, "flagged_attempts": 0, "progress_percent": 0.0,
     }
     assert [t["id"] for t in body["recommended"]] == ["git_basics", "html_basics", "javascript_fundamentals"]
     assert body["needs_attention"] == [] and body["recent_attempts"] == []
@@ -101,12 +89,12 @@ def test_dashboard_after_onboarding(client, make_user):
 
 # --- Stats from real quiz activity ---------------------------------------------------------
 
-def test_stats_reflect_quiz_activity(client, make_user, db):
+def test_stats_reflect_quiz_activity(client, make_user, db, quiz_taker):
     _, headers = make_user()
     onboard(client, headers)
-    html = take_quiz(client, headers, db, "html_basics", "CCC")   # pass, mastered (0.989)
-    git = take_quiz(client, headers, db, "git_basics", "CCW")     # pass, not mastered (0.759)
-    js = take_quiz(client, headers, db, "javascript_fundamentals", "CWW")  # fail -> in progress (0.465)
+    html = quiz_taker(headers, "html_basics", "CCC")   # pass, mastered (0.989)
+    git = quiz_taker(headers, "git_basics", "CCW")     # pass, not mastered (0.759)
+    js = quiz_taker(headers, "javascript_fundamentals", "CWW")  # fail -> in progress (0.465)
 
     stats = dashboard(client, headers)["stats"]
 
@@ -119,10 +107,10 @@ def test_stats_reflect_quiz_activity(client, make_user, db):
     assert stats["progress_percent"] == round(2 / 30 * 100, 1)
 
 
-def test_recommended_matches_learning_path(client, make_user, db):
+def test_recommended_matches_learning_path(client, make_user, db, quiz_taker):
     _, headers = make_user()
     onboard(client, headers)
-    take_quiz(client, headers, db, "html_basics", "CCC")
+    quiz_taker(headers, "html_basics", "CCC")
 
     body = dashboard(client, headers)
     path = client.get("/api/topics/learning-path", headers=headers).json()
@@ -134,12 +122,12 @@ def test_recommended_matches_learning_path(client, make_user, db):
         assert {"name", "description", "difficulty", "status", "mastery", "prerequisite_names"} <= set(card)
 
 
-def test_recent_attempts_newest_first_and_limited_to_five(client, make_user, db):
+def test_recent_attempts_newest_first_and_limited_to_five(client, make_user, db, quiz_taker):
     _, headers = make_user()
     onboard(client, headers)
     patterns = ["WWW", "CWW", "CCW", "WCC", "CWC", "CCC"]
     for pattern in patterns:
-        take_quiz(client, headers, db, "html_basics", pattern)
+        quiz_taker(headers, "html_basics", pattern)
 
     recent = dashboard(client, headers)["recent_attempts"]
 
@@ -156,11 +144,11 @@ def test_recent_attempts_newest_first_and_limited_to_five(client, make_user, db)
         assert later["mastery_before"] == earlier["mastery_after"]
 
 
-def test_needs_attention_lists_topic_with_resources_then_clears(client, make_user, db):
+def test_needs_attention_lists_topic_with_resources_then_clears(client, make_user, db, quiz_taker):
     _, headers = make_user()
     onboard(client, headers)
     for _ in range(3):
-        take_quiz(client, headers, db, "html_basics", "WWW")
+        quiz_taker(headers, "html_basics", "WWW")
 
     attention = dashboard(client, headers)["needs_attention"]
 
@@ -170,14 +158,14 @@ def test_needs_attention_lists_topic_with_resources_then_clears(client, make_use
     expected = [{"title": r.title, "url": r.url, "type": r.type} for r in TOPIC_BY_ID["html_basics"].resources]
     assert item["resources"] == expected
 
-    take_quiz(client, headers, db, "html_basics", "CCC")
+    quiz_taker(headers, "html_basics", "CCC")
     assert dashboard(client, headers)["needs_attention"] == []
 
 
-def test_mastery_list_covers_every_topic_with_names(client, make_user, db):
+def test_mastery_list_covers_every_topic_with_names(client, make_user, db, quiz_taker):
     _, headers = make_user()
     onboard(client, headers)
-    take_quiz(client, headers, db, "html_basics", "CCC")
+    quiz_taker(headers, "html_basics", "CCC")
 
     mastery = dashboard(client, headers)["mastery"]
 
@@ -200,12 +188,12 @@ def test_curriculum_complete(client, make_user):
     assert body["stats"]["completed_topics"] == 30 and body["stats"]["progress_percent"] == 100.0
 
 
-def test_dashboard_is_scoped_to_the_current_user(client, make_user, db):
+def test_dashboard_is_scoped_to_the_current_user(client, make_user, db, quiz_taker):
     _, alice = make_user("alice@example.com")
     _, bob = make_user("bob@example.com")
     onboard(client, alice)
     for _ in range(3):
-        take_quiz(client, alice, db, "html_basics", "WWW")
+        quiz_taker(alice, "html_basics", "WWW")
 
     body = dashboard(client, bob)
 
@@ -213,13 +201,13 @@ def test_dashboard_is_scoped_to_the_current_user(client, make_user, db):
     assert body["recent_attempts"] == [] and body["needs_attention"] == []
 
 
-def test_dashboard_uses_two_neo4j_queries_regardless_of_activity(client, make_user, db, monkeypatch):
+def test_dashboard_uses_two_neo4j_queries_regardless_of_activity(client, make_user, db, monkeypatch, quiz_taker):
     """ARCHITECTURE 16: no N+1 lookups - topic metadata is fetched once and joined in memory."""
     _, headers = make_user()
     onboard(client, headers)
     for topic_id in ("html_basics", "git_basics", "sql_basics"):
         for _ in range(3):
-            take_quiz(client, headers, db, topic_id, "WWW")  # 9 attempts, 3 topics needing attention
+            quiz_taker(headers, topic_id, "WWW")  # 9 attempts, 3 topics needing attention
 
     real_read, calls = neo4j_db.read, []
 
@@ -241,10 +229,10 @@ def test_progress_all_empty_before_onboarding(client, make_user):
     assert client.get("/api/progress/all", headers=headers).json() == {"topics": []}
 
 
-def test_progress_all_matches_spec_shape_and_values(client, make_user, db):
+def test_progress_all_matches_spec_shape_and_values(client, make_user, db, quiz_taker):
     _, headers = make_user()
     onboard(client, headers, {"html_basics"})
-    take_quiz(client, headers, db, "git_basics", "CCW")
+    quiz_taker(headers, "git_basics", "CCW")
 
     topics = client.get("/api/progress/all", headers=headers).json()["topics"]
 

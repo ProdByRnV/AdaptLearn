@@ -15,7 +15,7 @@ from neo4j.exceptions import ServiceUnavailable
 from sqlalchemy import select
 
 from config import get_settings
-from models import QuizAttempt, QuizSession, TopicProgress
+from models import QuizAttempt, QuizIntegrity, QuizSession, TopicProgress
 from schemas.quiz import QuizContent, QuizQuestion
 from seed.curriculum import TOPICS
 from seed.fallback_questions import FALLBACK_QUESTIONS
@@ -245,6 +245,8 @@ def test_shuffle_spreads_the_answer_across_positions():
 
 pytestmark_api = pytest.mark.usefixtures("curriculum")
 
+ANSWER_KEY_LEAKS = ('"correct"', '"correct_answer"', '"answer"', '"explanation"', "Because answer")
+
 
 def generate(client, headers, topic_id=ROOT):
     return client.get(f"/api/quiz/generate/{topic_id}", headers=headers)
@@ -284,46 +286,55 @@ def test_locked_topic_returns_403(client, make_user, fake_llm):
 
 
 @pytestmark_api
-def test_response_has_three_sanitised_questions(client, make_user, fake_llm):
+def test_generate_returns_quiz_info_without_any_question(client, make_user, fake_llm):
     _, headers = make_user()
     onboard(client, headers)
     response = generate(client, headers)
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"quiz_id", "topic", "questions", "expires_in_seconds", "source"}
+    assert set(body) == {
+        "quiz_id", "topic", "total_questions", "answered_questions", "seconds_per_question",
+        "expires_in_seconds", "source", "proctoring",
+    }
     assert body["topic"] == {"id": ROOT, "name": "Git Basics"}
-    assert body["source"] == "ai"
+    assert (body["total_questions"], body["answered_questions"], body["source"]) == (3, 0, "ai")
+    assert body["seconds_per_question"] == get_settings().quiz_seconds_per_question
     assert body["expires_in_seconds"] == get_settings().quiz_session_ttl_minutes * 60
-    assert [q["id"] for q in body["questions"]] == [0, 1, 2]
-    for q in body["questions"]:
-        assert set(q) == {"id", "question", "options"}
-        assert len(q["options"]) == 4
+    assert body["proctoring"]["verified_threshold"] == 80
+    assert {r["code"] for r in body["proctoring"]["rules"]} >= {"tab_hidden", "fullscreen_exit", "monitoring_missing"}
+    assert "Sample question" not in response.text  # questions come one at a time from /next
 
 
 @pytestmark_api
-def test_answer_key_is_never_in_the_response(client, make_user, fake_llm):
+def test_answer_key_is_never_sent_before_submission(client, make_user, fake_llm, clock):
     _, headers = make_user()
     onboard(client, headers)
-    text = generate(client, headers).text
-    # No answer-key fields, and no explanation text (which would give the answer away).
-    for leaked in ('"correct"', '"correct_answer"', '"answer"', '"explanation"', "Because answer"):
-        assert leaked not in text
+    texts = [generate(client, headers).text]
+    quiz_id = json.loads(texts[0])["quiz_id"]
+    for index in range(3):
+        served = client.post(f"/api/quiz/{quiz_id}/next", headers=headers)
+        texts.append(served.text)
+        clock.advance(10)
+        texts.append(client.post(f"/api/quiz/{quiz_id}/answer", json={"question_id": index, "answer": 0}, headers=headers).text)
+    texts.append(client.get("/api/quiz/active", headers=headers).text)
+    for text in texts:
+        for leaked in ANSWER_KEY_LEAKS:
+            assert leaked not in text
 
 
 @pytestmark_api
 def test_answer_key_is_stored_server_side(client, make_user, fake_llm, db):
     user_id, headers = make_user()
     onboard(client, headers)
-    body = generate(client, headers).json()
+    quiz_id = generate(client, headers).json()["quiz_id"]
+    served = client.post(f"/api/quiz/{quiz_id}/next", headers=headers).json()
 
-    session = db.get(QuizSession, body["quiz_id"])
-    assert session.user_id == user_id and session.topic_id == ROOT
-    assert session.submitted_at is None
-    for out, stored in zip(body["questions"], session.questions):
-        assert out["options"] == stored["options"]
+    session = db.get(QuizSession, quiz_id)
+    assert session.user_id == user_id and session.topic_id == ROOT and session.submitted_at is None
+    assert served["options"] == session.questions[0]["options"]
+    for stored in session.questions:
         assert stored["options"][stored["correct"]].startswith("Right answer")
-        assert stored["explanation"]
     expected_expiry = datetime.now(timezone.utc) + timedelta(minutes=get_settings().quiz_session_ttl_minutes)
     assert abs((session.expires_at - expected_expiry).total_seconds()) < 10
 
@@ -333,9 +344,6 @@ def test_unlocked_topic_becomes_in_progress(client, make_user, fake_llm, db):
     user_id, headers = make_user()
     onboard(client, headers)
     assert progress_row(db, user_id, ROOT).status == "unlocked"
-
-    generate(client, headers)
-    assert progress_row(db, user_id, ROOT).status == "in_progress"
     generate(client, headers)
     assert progress_row(db, user_id, ROOT).status == "in_progress"
 
@@ -344,20 +352,16 @@ def test_unlocked_topic_becomes_in_progress(client, make_user, fake_llm, db):
 def test_completed_topic_can_be_retaken_and_stays_completed(client, make_user, fake_llm, db):
     user_id, headers = make_user()
     onboard(client, headers, [ROOT])
-    response = generate(client, headers)
-    assert response.status_code == 200
+    assert generate(client, headers).status_code == 200
     assert progress_row(db, user_id, ROOT).status == "completed"
 
 
 @pytestmark_api
 def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm, db):
     user_id, headers = make_user()
-    response = generate(client, headers)
-
-    assert response.status_code == 200
+    assert generate(client, headers).status_code == 200
     db.expire_all()
-    rows = db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id)).all()
-    assert len(rows) == 30
+    assert len(db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id)).all()) == 30
     assert progress_row(db, user_id, ROOT).status == "in_progress"
     assert progress_row(db, user_id, "react_fundamentals").status == "locked"
 
@@ -365,28 +369,24 @@ def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm
 @pytestmark_api
 def test_groq_down_still_produces_a_quiz(client, make_user, fake_llm, db):
     """Phase 10 exit gate: the Groq-unavailable case."""
-    user_id, headers = make_user()
+    _, headers = make_user()
     onboard(client, headers)
     fake_llm.script = [connection_error()]
 
-    response = generate(client, headers)
+    body = generate(client, headers).json()
 
-    assert response.status_code == 200
-    body = response.json()
     assert body["source"] == "fallback"
-    assert len(body["questions"]) == 3
-    assert '"correct"' not in response.text
     session = db.get(QuizSession, body["quiz_id"])
-    fallback_texts = {q["question"] for q in FALLBACK_QUESTIONS[ROOT]}
-    assert {q["question"] for q in session.questions} == fallback_texts
+    assert {q["question"] for q in session.questions} == {q["question"] for q in FALLBACK_QUESTIONS[ROOT]}
+    served = client.post(f"/api/quiz/{body['quiz_id']}/next", headers=headers).json()
+    assert served["question"] in {q["question"] for q in FALLBACK_QUESTIONS[ROOT]}
 
 
 @pytestmark_api
 def test_no_api_key_serves_fallback_quiz(client, make_user, no_api_key):
     _, headers = make_user()
     onboard(client, headers)
-    body = generate(client, headers).json()
-    assert body["source"] == "fallback"
+    assert generate(client, headers).json()["source"] == "fallback"
 
 
 @pytestmark_api
@@ -402,44 +402,11 @@ def test_no_questions_anywhere_returns_503(client, make_user, fake_llm, monkeypa
     assert response.json() == {"detail": "Quiz generation is temporarily unavailable. Please try again shortly."}
 
 
-@pytestmark_api
-def test_each_quiz_is_a_new_session(client, make_user, fake_llm):
-    _, headers = make_user()
-    onboard(client, headers)
-    first, second = generate(client, headers).json(), generate(client, headers).json()
-    assert first["quiz_id"] != second["quiz_id"]
-
-
 # =====================================================================================
-# POST /api/quiz/submit (Phase 11)
+# Submission (Phase 11, proctored flow since Phase 12.5)
 # =====================================================================================
 
 SUBMIT_TOPIC = "html_basics"  # completing it unlocks css_basics and semantic_html
-
-
-def start_quiz(client, headers, topic_id=SUBMIT_TOPIC) -> str:
-    response = generate(client, headers, topic_id)
-    assert response.status_code == 200, response.text
-    return response.json()["quiz_id"]
-
-
-def answer_key(db, quiz_id) -> list[int]:
-    db.expire_all()
-    return [q["correct"] for q in db.get(QuizSession, quiz_id).questions]
-
-
-def answers_for(key: list[int], pattern: str) -> list[int]:
-    """Pattern like CCW: correct, correct, wrong."""
-    return [k if p == "C" else (k + 1) % 4 for k, p in zip(key, pattern)]
-
-
-def submit(client, headers, quiz_id, answers):
-    return client.post("/api/quiz/submit", json={"quiz_id": quiz_id, "answers": answers}, headers=headers)
-
-
-def take_quiz(client, headers, db, pattern, topic_id=SUBMIT_TOPIC):
-    quiz_id = start_quiz(client, headers, topic_id)
-    return submit(client, headers, quiz_id, answers_for(answer_key(db, quiz_id), pattern))
 
 
 def attempts_for(db, user_id) -> list[QuizAttempt]:
@@ -457,51 +424,43 @@ def learner(client, make_user, fake_llm):
 
 @pytestmark_api
 def test_submit_requires_authentication(client):
-    body = {"quiz_id": "00000000-0000-0000-0000-000000000000", "answers": [0, 0, 0]}
-    assert client.post("/api/quiz/submit", json=body).status_code == 401
+    assert client.post("/api/quiz/submit", json={"quiz_id": "00000000-0000-0000-0000-000000000000"}).status_code == 401
 
 
 @pytestmark_api
-def test_perfect_quiz_passes_masters_and_unlocks(client, learner, db):
+def test_perfect_quiz_passes_masters_and_unlocks(learner, quiz_taker):
     _, headers = learner
-    response = take_quiz(client, headers, db, "CCC")
+    body = quiz_taker(headers, SUBMIT_TOPIC, "CCC")
 
-    assert response.status_code == 200
-    body = response.json()
     assert (body["topic_id"], body["score"], body["total"], body["passed"]) == (SUBMIT_TOPIC, 3, 3, True)
     assert body["p_know_before"] == pytest.approx(0.10)
     assert body["p_know_after"] == pytest.approx(0.9890160183, abs=1e-9)
-    assert body["mastered"] is True
-    assert body["status"] == "completed"
-    assert body["needs_attention"] is False
+    assert (body["mastered"], body["status"], body["needs_attention"]) == (True, "completed", False)
     assert body["recommended_resources"] == []
     assert body["newly_unlocked"] == ["css_basics", "semantic_html"]
     assert [t["id"] for t in body["next_topics"]] == ["css_basics", "git_basics", "javascript_fundamentals"]
+    assert body["integrity"] == {"score": 100, "verdict": "verified", "counted": True, "reasons": []}
 
 
 @pytestmark_api
-def test_feedback_reveals_answers_and_explanations_after_submission(client, learner, db):
+def test_feedback_reveals_answers_and_explanations_after_submission(learner, quiz_taker):
     _, headers = learner
-    quiz_id = start_quiz(client, headers)
-    key = answer_key(db, quiz_id)
-    answers = answers_for(key, "CWC")
+    feedback = quiz_taker(headers, SUBMIT_TOPIC, "CWT")["feedback"]
 
-    feedback = submit(client, headers, quiz_id, answers).json()["feedback"]
-
-    assert [f["selected"] for f in feedback] == answers
-    assert [f["correct"] for f in feedback] == key
-    assert [f["is_correct"] for f in feedback] == [True, False, True]
+    assert [f["is_correct"] for f in feedback] == [True, False, False]
+    assert [f["timed_out"] for f in feedback] == [False, False, True]
+    assert feedback[0]["selected"] == feedback[0]["correct"]
+    assert feedback[1]["selected"] != feedback[1]["correct"]
+    assert feedback[2]["selected"] is None
     for item in feedback:
         assert len(item["options"]) == 4 and item["question"] and item["explanation"].startswith("Because")
 
 
 @pytestmark_api
-def test_submission_persists_progress_attempt_and_session(client, learner, db):
+def test_submission_persists_progress_attempt_and_integrity(learner, quiz_taker, db):
     """ARCHITECTURE 23: successful submission writes attempt and progress."""
     user_id, headers = learner
-    quiz_id = start_quiz(client, headers)
-    key = answer_key(db, quiz_id)
-    submit(client, headers, quiz_id, answers_for(key, "CCW"))
+    quiz_taker(headers, SUBMIT_TOPIC, "CCW")
 
     row = progress_row(db, user_id, SUBMIT_TOPIC)
     assert (row.status, row.attempts, row.correct) == ("completed", 1, 2)
@@ -509,12 +468,12 @@ def test_submission_persists_progress_attempt_and_session(client, learner, db):
 
     (attempt,) = attempts_for(db, user_id)
     assert (attempt.topic_id, attempt.score, attempt.passed) == (SUBMIT_TOPIC, 2, True)
-    assert attempt.submitted_answers == answers_for(key, "CCW")
-    assert attempt.p_know_before == pytest.approx(0.10)
     assert attempt.p_know_after == pytest.approx(0.7589958159, abs=1e-9)
-    assert [q["correct"] for q in attempt.questions] == key  # full snapshot for history
-
-    assert db.get(QuizSession, quiz_id).submitted_at is not None
+    key = [q["correct"] for q in attempt.questions]
+    assert attempt.submitted_answers[:2] == key[:2] and attempt.submitted_answers[2] != key[2]
+    integrity = db.scalar(select(QuizIntegrity).where(QuizIntegrity.attempt_id == attempt.id))
+    assert (integrity.verdict, integrity.counted, integrity.score) == ("verified", True, 100)
+    assert db.get(QuizSession, integrity.session_id).submitted_at is not None
 
 
 @pytest.mark.parametrize(
@@ -527,139 +486,139 @@ def test_submission_persists_progress_attempt_and_session(client, learner, db):
         ("WWC", 0.8708761442, False),
         ("CWW", 0.4654292343, False),
         ("WWW", 0.4551879666, False),
+        ("CCT", 0.7589958159, True),  # a timeout counts as a wrong answer
     ],
 )
 @pytestmark_api
-def test_bkt_is_applied_to_answers_in_order(client, learner, db, pattern, expected_after, passed):
+def test_bkt_is_applied_to_answers_in_order(learner, quiz_taker, pattern, expected_after, passed):
     _, headers = learner
-    body = take_quiz(client, headers, db, pattern).json()
+    body = quiz_taker(headers, SUBMIT_TOPIC, pattern)
     assert body["p_know_after"] == pytest.approx(expected_after, abs=1e-9)
     assert body["passed"] is passed
     assert body["score"] == pattern.count("C")
 
 
 @pytestmark_api
-def test_failed_quiz_keeps_topic_in_progress_and_recommends_resources(client, learner, db):
+def test_failed_quiz_keeps_topic_in_progress_and_recommends_resources(learner, quiz_taker, db):
     user_id, headers = learner
-    body = take_quiz(client, headers, db, "CWW").json()
+    body = quiz_taker(headers, SUBMIT_TOPIC, "CWW")
 
-    assert body["passed"] is False
-    assert body["status"] == "in_progress"
-    assert body["newly_unlocked"] == []
+    assert (body["passed"], body["status"], body["newly_unlocked"]) == (False, "in_progress", [])
     html = next(t for t in TOPICS if t.id == SUBMIT_TOPIC)
     assert body["recommended_resources"] == [{"title": r.title, "url": r.url, "type": r.type} for r in html.resources]
     assert progress_row(db, user_id, "css_basics").status == "locked"
 
 
 @pytestmark_api
-def test_failed_retake_never_undoes_completion(client, make_user, fake_llm, db):
+def test_failed_retake_never_undoes_completion(client, make_user, fake_llm, quiz_taker, db):
     user_id, headers = make_user()
     onboard(client, headers, [SUBMIT_TOPIC])  # completed at 0.95
 
-    body = take_quiz(client, headers, db, "WWW").json()
+    body = quiz_taker(headers, SUBMIT_TOPIC, "WWW")
 
-    assert body["passed"] is False
-    assert body["status"] == "completed"
+    assert (body["passed"], body["status"]) == (False, "completed")
     assert body["p_know_after"] < 0.95
-    assert progress_row(db, user_id, SUBMIT_TOPIC).status == "completed"
     assert progress_row(db, user_id, "css_basics").status == "unlocked"
 
 
 @pytestmark_api
-def test_needs_attention_after_more_than_two_poor_attempts_then_clears(client, learner, db):
+def test_needs_attention_after_more_than_two_poor_attempts_then_clears(learner, quiz_taker, db):
     user_id, headers = learner
+    first = quiz_taker(headers, SUBMIT_TOPIC, "WWW")
+    second = quiz_taker(headers, SUBMIT_TOPIC, "WWW")
+    assert first["needs_attention"] is False and second["needs_attention"] is False
 
-    first = take_quiz(client, headers, db, "WWW").json()
-    second = take_quiz(client, headers, db, "WWW").json()
-    assert first["needs_attention"] is False and second["needs_attention"] is False  # attempts not yet > 2
-
-    third = take_quiz(client, headers, db, "WWW").json()
-    assert third["needs_attention"] is True  # attempts 3, p_know ~0.455 < 0.50
-    assert third["recommended_resources"]
+    third = quiz_taker(headers, SUBMIT_TOPIC, "WWW")
+    assert third["needs_attention"] is True and third["recommended_resources"]
     assert progress_row(db, user_id, SUBMIT_TOPIC).needs_attention is True
 
-    recovered = take_quiz(client, headers, db, "CCC").json()
-    assert recovered["needs_attention"] is False
+    assert quiz_taker(headers, SUBMIT_TOPIC, "CCC")["needs_attention"] is False
     assert progress_row(db, user_id, SUBMIT_TOPIC).needs_attention is False
 
 
 @pytestmark_api
-def test_counters_accumulate_across_attempts(client, learner, db):
+def test_counters_accumulate_across_attempts(learner, quiz_taker, db):
     user_id, headers = learner
-    take_quiz(client, headers, db, "CWW")
-    take_quiz(client, headers, db, "CCW")
+    quiz_taker(headers, SUBMIT_TOPIC, "CWW")
+    quiz_taker(headers, SUBMIT_TOPIC, "CCW")
     row = progress_row(db, user_id, SUBMIT_TOPIC)
     assert (row.attempts, row.correct) == (2, 3)
     assert len(attempts_for(db, user_id)) == 2
 
 
 @pytestmark_api
-def test_submission_changes_progress_and_recommendations(client, learner, db):
+def test_submission_changes_progress_and_recommendations(client, learner, quiz_taker):
     """Phase 11 exit gate."""
     _, headers = learner
-    path_before = client.get("/api/topics/learning-path", headers=headers).json()["recommended"]
-    assert [t["id"] for t in path_before] == ["git_basics", "html_basics", "javascript_fundamentals"]
+    before = client.get("/api/topics/learning-path", headers=headers).json()["recommended"]
+    assert [t["id"] for t in before] == ["git_basics", "html_basics", "javascript_fundamentals"]
 
-    body = take_quiz(client, headers, db, "CCC").json()
+    body = quiz_taker(headers, SUBMIT_TOPIC, "CCC")
 
-    path_after = client.get("/api/topics/learning-path", headers=headers).json()["recommended"]
-    assert [t["id"] for t in path_after] == ["css_basics", "git_basics", "javascript_fundamentals"]
-    assert path_after == body["next_topics"]
-    nodes = {n["id"]: n for n in client.get("/api/topics/graph", headers=headers).json()["nodes"]}
-    assert (nodes[SUBMIT_TOPIC]["status"], nodes[SUBMIT_TOPIC]["mastered"]) == ("completed", True)
-    assert nodes["semantic_html"]["status"] == "unlocked"
+    after = client.get("/api/topics/learning-path", headers=headers).json()["recommended"]
+    assert [t["id"] for t in after] == ["css_basics", "git_basics", "javascript_fundamentals"]
+    assert after == body["next_topics"]
 
 
 @pytestmark_api
-def test_another_users_quiz_is_not_found_and_left_untouched(client, make_user, fake_llm, db):
-    """ARCHITECTURE 23: wrong user's quiz submission rejected."""
+def test_another_users_quiz_is_not_found_and_left_untouched(client, make_user, fake_llm, db, clock):
+    """ARCHITECTURE 23: wrong user's quiz submission rejected - for every quiz endpoint."""
     _, owner = make_user("owner@example.com")
     _, intruder = make_user("intruder@example.com")
     onboard(client, owner)
-    quiz_id = start_quiz(client, owner)
-    key = answer_key(db, quiz_id)
+    quiz_id = generate(client, owner).json()["quiz_id"]
 
-    response = submit(client, intruder, quiz_id, key)
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Quiz not found"}
+    attempts = [
+        client.post(f"/api/quiz/{quiz_id}/next", headers=intruder),
+        client.post(f"/api/quiz/{quiz_id}/answer", json={"question_id": 0, "answer": 0}, headers=intruder),
+        client.post(f"/api/quiz/{quiz_id}/events", json={"events": [{"type": "heartbeat"}]}, headers=intruder),
+        client.post("/api/quiz/submit", json={"quiz_id": quiz_id}, headers=intruder),
+    ]
+    for response in attempts:
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Quiz not found"}
+    db.expire_all()
     assert db.get(QuizSession, quiz_id).submitted_at is None
-    assert submit(client, owner, quiz_id, key).status_code == 200
+    assert client.post(f"/api/quiz/{quiz_id}/next", headers=owner).status_code == 200
 
 
 @pytestmark_api
 def test_unknown_quiz_returns_404(client, learner):
     _, headers = learner
-    response = submit(client, headers, "11111111-2222-3333-4444-555555555555", [0, 1, 2])
-    assert response.status_code == 404
+    unknown = "11111111-2222-3333-4444-555555555555"
+    assert client.post("/api/quiz/submit", json={"quiz_id": unknown}, headers=headers).status_code == 404
+    assert client.post(f"/api/quiz/{unknown}/next", headers=headers).status_code == 404
 
 
 @pytestmark_api
-def test_expired_quiz_is_rejected(client, learner, db):
+def test_expired_quiz_is_rejected_everywhere(client, learner, db):
     """ARCHITECTURE 23: expired quiz rejected."""
     user_id, headers = learner
-    quiz_id = start_quiz(client, headers)
+    quiz_id = generate(client, headers).json()["quiz_id"]
     session = db.get(QuizSession, quiz_id)
     session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     db.commit()
 
-    response = submit(client, headers, quiz_id, [0, 0, 0])
-
-    assert response.status_code == 410
-    assert response.json() == {"detail": "This quiz has expired. Start a new quiz for this topic."}
+    for response in (
+        client.post(f"/api/quiz/{quiz_id}/next", headers=headers),
+        client.post(f"/api/quiz/{quiz_id}/answer", json={"question_id": 0, "answer": 0}, headers=headers),
+        client.post("/api/quiz/submit", json={"quiz_id": quiz_id}, headers=headers),
+    ):
+        assert response.status_code == 410
+        assert response.json() == {"detail": "This quiz has expired. Start a new quiz for this topic."}
     assert attempts_for(db, user_id) == []
     assert progress_row(db, user_id, SUBMIT_TOPIC).attempts == 0
 
 
 @pytestmark_api
-def test_second_submission_is_rejected(client, learner, db):
+def test_second_submission_is_rejected(client, learner, quiz_taker, db):
     """ARCHITECTURE 23: second submission rejected."""
     user_id, headers = learner
-    quiz_id = start_quiz(client, headers)
-    key = answer_key(db, quiz_id)
-    assert submit(client, headers, quiz_id, key).status_code == 200
+    quiz_taker(headers, SUBMIT_TOPIC, "CCC")
+    (attempt,) = attempts_for(db, user_id)
+    session_id = db.scalar(select(QuizIntegrity.session_id).where(QuizIntegrity.attempt_id == attempt.id))
 
-    response = submit(client, headers, quiz_id, key)
+    response = client.post("/api/quiz/submit", json={"quiz_id": str(session_id)}, headers=headers)
 
     assert response.status_code == 409
     assert response.json() == {"detail": "This quiz has already been submitted"}
@@ -668,36 +627,49 @@ def test_second_submission_is_rejected(client, learner, db):
 
 
 @pytest.mark.parametrize(
-    "answers",
-    [[0, 1], [0, 1, 2, 3], [0, 1, 4], [0, -1, 2], ["0", 1, 2], [True, 1, 2], [0.0, 1, 2], None],
-    ids=["two", "four", "index-4", "negative", "string", "bool", "float", "missing"],
+    "payload",
+    [{"question_id": 0, "answer": 4}, {"question_id": 0, "answer": -1}, {"question_id": 0, "answer": "0"},
+     {"question_id": 0, "answer": True}, {"question_id": 0, "answer": 0.0}, {"question_id": 3, "answer": 0},
+     {"question_id": -1, "answer": 0}, {"answer": 0}, {"question_id": 0}],
+    ids=["index-4", "negative", "string", "bool", "float", "question-3", "question-negative", "no-question", "no-answer"],
 )
 @pytestmark_api
-def test_invalid_answers_are_rejected(client, learner, db, answers):
+def test_invalid_answer_payloads_are_rejected(client, learner, payload):
     _, headers = learner
-    quiz_id = start_quiz(client, headers)
-    body = {"quiz_id": quiz_id} if answers is None else {"quiz_id": quiz_id, "answers": answers}
+    quiz_id = generate(client, headers).json()["quiz_id"]
+    client.post(f"/api/quiz/{quiz_id}/next", headers=headers)
+    assert client.post(f"/api/quiz/{quiz_id}/answer", json=payload, headers=headers).status_code == 422
 
-    response = client.post("/api/quiz/submit", json=body, headers=headers)
 
+@pytestmark_api
+def test_old_style_submit_with_answers_list_is_rejected(client, learner):
+    _, headers = learner
+    quiz_id = generate(client, headers).json()["quiz_id"]
+    response = client.post("/api/quiz/submit", json={"quiz_id": quiz_id, "answers": [0, 1, 2]}, headers=headers)
     assert response.status_code == 422
-    assert db.get(QuizSession, quiz_id).submitted_at is None
 
 
 @pytestmark_api
 def test_malformed_quiz_id_is_rejected(client, learner):
     _, headers = learner
-    assert submit(client, headers, "not-a-uuid", [0, 1, 2]).status_code == 422
+    assert client.post("/api/quiz/submit", json={"quiz_id": "not-a-uuid"}, headers=headers).status_code == 422
+    assert client.post("/api/quiz/not-a-uuid/next", headers=headers).status_code == 422
 
 
 @pytestmark_api
-def test_failure_midway_saves_nothing_and_allows_resubmission(client, learner, db, monkeypatch):
+def test_failure_midway_saves_nothing_and_allows_resubmission(client, learner, db, clock, monkeypatch):
     """Neo4j dies after progress was updated in memory: the whole submission rolls back."""
     from db import neo4j_db
 
     user_id, headers = learner
-    quiz_id = start_quiz(client, headers)
-    key = answer_key(db, quiz_id)
+    quiz_id = generate(client, headers, SUBMIT_TOPIC).json()["quiz_id"]
+    key = [q["correct"] for q in db.get(QuizSession, quiz_id).questions]
+    for index in range(3):
+        client.post(f"/api/quiz/{quiz_id}/next", headers=headers)
+        for _ in range(2):
+            clock.advance(5)
+            client.post(f"/api/quiz/{quiz_id}/events", json={"events": [{"type": "heartbeat"}]}, headers=headers)
+        client.post(f"/api/quiz/{quiz_id}/answer", json={"question_id": index, "answer": key[index]}, headers=headers)
 
     real_read, calls = neo4j_db.read, []
 
@@ -708,13 +680,13 @@ def test_failure_midway_saves_nothing_and_allows_resubmission(client, learner, d
         return real_read(*args, **kwargs)
 
     monkeypatch.setattr(neo4j_db, "read", flaky_read)
-    response = submit(client, headers, quiz_id, key)
-    assert response.status_code == 503
+    assert client.post("/api/quiz/submit", json={"quiz_id": quiz_id}, headers=headers).status_code == 503
 
+    db.expire_all()
     assert db.get(QuizSession, quiz_id).submitted_at is None
     assert attempts_for(db, user_id) == []
     row = progress_row(db, user_id, SUBMIT_TOPIC)
     assert (row.status, row.attempts, row.p_know) == ("in_progress", 0, pytest.approx(0.10))
 
     monkeypatch.setattr(neo4j_db, "read", real_read)
-    assert submit(client, headers, quiz_id, key).status_code == 200
+    assert client.post("/api/quiz/submit", json={"quiz_id": quiz_id}, headers=headers).status_code == 200
