@@ -127,6 +127,8 @@ Then open http://localhost:5173. The app talks to the API at `VITE_API_URL` (def
 
 **Signing in.** The register form asks for a username, email, password and password confirmation (there is no password reset yet, so a typo would lock the account); the login form for email and password. Both check the backend's rules before sending (username up to 80 characters, a valid email, password 8 characters to 72 bytes), show each problem next to its field, and show server answers in plain language: "Incorrect email or password", "An account with this email already exists" on the email field, or "Can't reach the AdaptLearn server". After signing in the learner goes to the remembered page if there is one; otherwise to `/onboarding` until they have onboarded (always the case for a new account) and to `/dashboard` after that, decided by `onboarded` from `GET /api/topics/learning-path`.
 
+**Onboarding** (`/onboarding`). Shows the domain and the PRD's explanation, then every topic from `GET /api/topics/graph`, grouped by difficulty (Beginner, Intermediate, Advanced, Expert). Ticking a topic also ticks everything it depends on, marked "Included: needed for ...", because the server marks prerequisites of known topics as known too; the live counter ("7 topics selected (5 included as prerequisites)") therefore matches what will be saved. Topics a returning learner has already completed are shown ticked. Saving sends only the explicit choices to `POST /api/topics/mark-known` and opens the dashboard with a confirmation; saving with nothing ticked starts from the beginning. Loading shows a skeleton, a failed load offers a retry, and a failed save keeps the selection.
+
 **Sessions.** The JWT is kept in `localStorage` and sent as `Authorization: Bearer ...` on every request. On load the app asks `/api/auth/me` who the token belongs to. If the server rejects the token (`401`), it is dropped and the learner sees "Your session has expired" on the login page; if the server can't be reached, the token is kept and the page offers a retry. Logging out (or in) in one tab applies to every open tab.
 
 **Theme.** Colours come from the AdaptLearn design palette (slate ink, teal primary, and the topic status colours: completed teal-500, in progress amber-500, unlocked teal-200, locked slate-500), defined once as CSS variables in `frontend/src/index.css` and used through Tailwind classes such as `bg-primary`, `text-ink` and `bg-status-completed`. The light status colours are used as fills with dark text, never as text on white.
@@ -408,15 +410,16 @@ adaptlearn/
         ├── index.css    # Tailwind + AdaptLearn palette tokens
         ├── api/         # Axios client (token, 401 handling, error messages) + auth and topics endpoints
         ├── context/     # AuthProvider (session state)
-        ├── hooks/       # useAuth, useForm
+        ├── hooks/       # useAuth, useForm, useApiData
         ├── routes/      # ProtectedRoute, PublicOnlyRoute, PostAuthRedirect
         ├── components/
         │   ├── ui/      # shadcn/ui primitives (button, card, badge, alert, input, ...)
         │   ├── common/  # Loader, ErrorState, EmptyState, ProgressBar, PageHeader
         │   ├── forms/   # TextField, PasswordField, FormAlert, SubmitButton
+        │   ├── onboarding/  # TopicOption, SelectionBar
         │   ├── layout/  # AppShell, Navbar, AuthLayout, Logo
         │   └── topics/  # TopicStatusBadge
-        ├── lib/         # validation rules, server-error mapping, topic status styles, redirect helper
+        ├── lib/         # validation rules, server-error mapping, topic helpers (difficulty, prerequisites), status styles, redirect helper
         ├── pages/       # one component per route
         └── test/        # Vitest setup and helpers
 ```

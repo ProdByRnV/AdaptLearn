@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchCurrentUser, loginRequest } from '@/api/auth'
 import api, { tokenStorage } from '@/api/client'
-import { fetchLearningPath } from '@/api/topics'
+import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
 import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
 
 const session = { access_token: 'jwt-login', token_type: 'bearer', user: LEARNER }
 const path = (onboarded) => ({ domain: 'Web Development', onboarded, curriculum_complete: false, recommended: [] })
@@ -25,6 +25,8 @@ async function fillAndSubmit(user, email = 'puja@example.com', password = 'Stron
 }
 
 beforeEach(() => {
+  // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
+  fetchTopicGraph.mockReturnValue(new Promise(() => {}))
   fetchLearningPath.mockResolvedValue(path(true))
 })
 
