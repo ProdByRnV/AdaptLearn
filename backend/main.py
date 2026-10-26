@@ -56,6 +56,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browsers hide response headers from cross-origin pages unless listed here; the quiz page
+    # reads Retry-After from 429 responses to say when the next quiz can start.
+    expose_headers=["Retry-After"],
 )
 
 app.include_router(health.router, prefix="/api")

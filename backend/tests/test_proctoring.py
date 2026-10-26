@@ -396,9 +396,13 @@ def test_overall_rate_limit(client, learner, clock, monkeypatch):
     monkeypatch.setattr(get_settings(), "quiz_max_per_hour", 2)
     start(client, headers, "html_basics")
     start(client, headers, "git_basics")
-    response = client.get("/api/quiz/generate/sql_basics", headers=headers)
+    frontend = {**headers, "Origin": get_settings().cors_origins[0]}
+    response = client.get("/api/quiz/generate/sql_basics", headers=frontend)
     assert response.status_code == 429
     assert "overall" in response.json()["detail"]
+    # The browser may read Retry-After from the cross-origin 429.
+    assert int(response.headers["retry-after"]) > 0
+    assert "retry-after" in response.headers["access-control-expose-headers"].lower()
 
 
 # --- One active quiz --------------------------------------------------------------------------

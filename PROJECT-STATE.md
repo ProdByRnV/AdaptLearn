@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-26
-**Current phase:** Phase 12.5 complete (proctoring, server side) - Phase 13 (React Foundation) up next
+**Current phase:** Phase 13 complete (React foundation) - Phase 14 (Login & Register UI) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -24,9 +24,9 @@ Phases follow the project roadmap (a private specification document, not in this
 | 10 | Groq Quiz Generation | Done | `86ffdf0` |
 | 11 | Quiz Submission & Progress Update | Done | `fcba616` |
 | 12 | Dashboard API | Done | `480dd10` |
-| 12.5 | Proctoring - server side (inserted) | Done | latest |
-| 13 | React Foundation | Next | - |
-| 14 | Login & Register UI | Pending | - |
+| 12.5 | Proctoring - server side (inserted) | Done | `15b0ed6` |
+| 13 | React Foundation | Done | latest |
+| 14 | Login & Register UI | Next | - |
 | 15 | Onboarding UI | Pending | - |
 | 16 | Dashboard UI | Pending | - |
 | 17 | Quiz UI | Pending | - |
@@ -49,8 +49,8 @@ Phases follow the project roadmap (a private specification document, not in this
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions`, plus (Phase 12.5) `quiz_responses`, `proctoring_events`, `quiz_integrity` - all created automatically on backend startup (`create_all`; the new tables were added to the existing dev database without a reset) |
 | Groq | API key set in `backend/.env`; model `openai/gpt-oss-120b` (reasoning effort low). Live quizzes generate in ~1.7-2.0s; without Groq the curated fallback bank is used |
 | Demo account | `demo@adaptlearn.dev` in the local dev database only (password shared outside the repo; not a real credential): onboarded with HTML Basics, then 6 real AI quizzes (CSS 3/3, Git 2/3, JavaScript 1/3, SQL 0/3, 1/3, 0/3), so the dashboard has real data and SQL Basics needs attention. Log in with it in Swagger (`/api/auth/login`, then Authorize). Remove with: `docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "delete from users where email='demo@adaptlearn.dev'"` |
-| Frontend | Not started - the UI is being built last |
-| Tests | 389 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 114 quiz generation + submission (mostly parametrized), 17 dashboard/progress, 43 proctoring. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database |
+| Frontend | `frontend/`: React 19.3 + Vite 8 + Tailwind CSS 4.3 + shadcn/ui (Radix, Nova preset) + React Router 8 + Axios, all versions pinned exactly. Dev server on `5173` (`npm run dev`). Built so far: palette theme, routing with protected/public-only guards, Axios client (Bearer token, session-ending 401 handling, error messages, Retry-After), AuthProvider/useAuth (session restore via `/auth/me`, cross-tab sync), AppShell/Navbar/AuthLayout, shared loaders/error/empty states/progress bar/status badge. Pages are placeholders until Phases 14-18 |
+| Tests | Backend: 393 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 116 quiz generation + submission (mostly parametrized), 17 dashboard/progress, 41 proctoring, 4 CORS. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database. Frontend: 84 passing (`npm test` from `frontend/`): 22 API client, 14 auth provider, 26 routing, 1 crash screen, 21 shared components/helpers; no backend needed |
 
 ### Start the local environment
 
@@ -62,6 +62,10 @@ cd backend
 venv\Scripts\activate    # Windows (macOS/Linux: source venv/bin/activate)
 uvicorn main:app --reload --port 8000
 # then open http://127.0.0.1:8000/api/health
+
+cd frontend              # second terminal, from the project root
+npm install              # first time only
+npm run dev              # then open http://localhost:5173
 ```
 
 Reset the PostgreSQL schema after model changes (dev only - deletes all data), then restart the backend:
@@ -135,10 +139,19 @@ Notes for the frontend:
 |---|---|---|
 | Neo4j `5` | Neo4j `5.26-community` (pinned) | Same version in every environment |
 | `GROQ_MODEL=llama3-8b-8192` | `openai/gpt-oss-120b` + `GROQ_REASONING_EFFORT=low` | Llama chat models are no longer offered by Groq; gpt-oss-120b gave the most precise questions at ~1-2s (vs gpt-oss-20b 0.9s but vaguer, qwen3.8-27b 1.2s) |
-| `frontend/.env.example` in Phase 1 | Deferred to frontend phase | UI is being built last |
+| `frontend/.env.example` in Phase 1 | Added in Phase 13 | UI is being built last |
 | `UI.md` required | Not present - ignored for now | UI design to be decided at the frontend stage |
 | Graph colours (ARCHITECTURE 19: completed `#0F766E`, in progress `#0EA5E9`, unlocked `#5EEAD4`, locked `#94A3B8`) | `AdaptLearn.pdf` palette: `#14B8A6` / `#F59E0B` / `#99F6E4` / `#64748B` | Owner decision: the whole UI follows the PDF palette |
 | React 18 | React 19 (+ Tailwind v4, shadcn/ui) | Current shadcn/ui targets React 19; owner delegated the choice |
+| `tailwind.config.js` + `postcss.config.js` (ARCHITECTURE 2) | Neither: Tailwind v4 is configured in CSS (`@theme` in `src/index.css`) and runs through the `@tailwindcss/vite` plugin | Tailwind v4 has no JS config file or PostCSS step by default |
+| `components/common/Button.jsx`, `Card.jsx` | shadcn/ui `components/ui/button.jsx`, `card.jsx` (plus badge, alert, input, label, progress, skeleton, separator, dropdown-menu) | Decision 8; the spec's own Loader, ErrorState, EmptyState and ProgressBar are built in `components/common/` on top of them |
+| `hooks/useAuth.jsx` holding the context | `context/AuthProvider.jsx` + `context/auth-context.js` + `hooks/useAuth.js` | React Fast Refresh needs component files to export only components |
+| Response interceptor: "on 401 clear auth and redirect to login" | Only a 401 for a request that carried the **current** token ends the session; it then redirects through the router with a "session expired" message and remembers the page | A wrong password also returns 401 and must not log anyone out; a late 401 for an old token must not end a new session |
+| Boot: "if 401 clear token" | Also: if `/auth/me` fails for another reason (server down), keep the token and show a retry | Not logging people out just because the API was briefly unreachable |
+| - | Cross-tab session sync (`storage` event), `/` redirects to the dashboard, signed-in users are sent away from `/login`/`/register`, route error screen | Expected app behaviour the spec doesn't list |
+| `VITE_API_URL=http://localhost:8000/api` | Default `http://127.0.0.1:8000/api` | Same reason as the database hosts: avoids the IPv6 `localhost` detour on Windows |
+| CORS exposes no headers | `expose_headers=["Retry-After"]` | Browsers hide response headers from cross-origin pages; the quiz page needs Retry-After from 429s |
+| Font not specified (the PDF's font names aren't readable) | Geist Variable, self-hosted via `@fontsource-variable/geist` (shadcn Nova preset) | No external font requests; neutral sans that matches the PDF's clean style |
 | Quiz contract (ARCHITECTURE 13.8 / 13.9): generate returns all 3 questions; submit takes `{quiz_id, answers}` | Generate returns no questions; `POST /quiz/{id}/next` serves one at a time with a deadline, `POST /quiz/{id}/answer` locks each answer, `POST /quiz/{id}/events` takes proctoring signals, `GET /quiz/active` resumes; submit takes only `{quiz_id}` and adds `integrity` | Proctoring (decision 10): a page holding all questions at once could be answered with outside help and no timing control |
 | No proctoring in the PRD | Integrity score (start 100, penalties per signal, verified at 80+); flagged attempts saved but change no progress; abandoned quizzes never count | Owner decision |
 | No generation limits in the PRD | 5 quizzes per topic and 30 overall per user per hour (`429` + `Retry-After`), checked before the AI call | Stops regenerate-until-easy and protects Groq quota |
@@ -203,18 +216,19 @@ Notes for the frontend:
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
 - **Recommendation ranking (built as specified, worth revisiting):** the spec ranks the frontier by difficulty then name, so easy side topics always come first. In the live check, a learner who marked React Hooks as known was recommended Git Basics, Semantic HTML and Arrays & Objects ahead of React Router, the same top 3 as a learner who only knew HTML/CSS/JS. A track-aware ranking (e.g. prefer topics that unlock what the learner just finished) could be a later enhancement.
 - **Resource links can rot:** all 81 URLs were live on 2026-10-04. Re-check them before deployment (Phase 21).
+- **Onboarding redirect not wired yet:** `/auth/me` doesn't say whether a learner has onboarded (the learning-path and dashboard responses do, via `onboarded`). Phase 14/15 decides where to send a learner after login/registration using `GET /topics/learning-path`.
+- **JWT in `localStorage`** (as the spec designs it): readable by any script on the page, so an XSS bug would expose the token. Acceptable for the MVP; HttpOnly cookies with refresh tokens are the hardening path (README security notes).
+- **Placeholder pages:** login, register, onboarding, dashboard, quiz and graph pages currently say which phase builds them.
 - **Dev auto-reload under the assistant:** `uvicorn --reload` hangs on Windows when started without a console (the reloader can't deliver Ctrl+C to the worker). Doesn't affect running it in a normal terminal; the assistant restarts the server manually instead.
 
 ---
 
 ## Next step
 
-**The backend API is complete** (Phases 1-12, plus proctoring in 12.5): auth, curriculum graph, onboarding, learning path, BKT, AI quizzes with fallback, submission and dashboard, all covered by 346 tests.
+**The backend API is complete** (Phases 1-12, plus proctoring in 12.5), covered by 393 tests. **The frontend foundation is in place** (Phase 13): theme, routing, session handling and shared components, covered by 84 tests and a live browser check.
 
-**Phase 13 - React Foundation** (frontend begins): React + Vite + Tailwind, React Router, an Axios client with the JWT interceptor and 401 handling, AuthContext/useAuth, AppShell/Navbar and reusable loader/error/card/button components.
+**Phase 14 - Login & Register UI:** real forms on the existing `/login` and `/register` routes using `useAuth().login/register`, client-side validation matching the backend (password 8 characters to 72 bytes), server errors shown via `getErrorMessage`, a redirect to onboarding or the dashboard (via `onboarded` from the learning path), and the "session expired" message already wired in.
 
-Stack decided: React 19 + Vite + Tailwind v4 + shadcn/ui, styled with the **Design palette** above.
+Exit gate: register and login work from the browser, auth survives a refresh, logout works.
 
 The quiz screens (Phase 17) must use the proctored flow and implement the layer 2 browser monitoring described in the open items.
-
-Exit gate: the app boots, routes render, and protected routes redirect correctly.

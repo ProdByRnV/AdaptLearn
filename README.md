@@ -6,7 +6,7 @@ An adaptive learning platform that builds a personalised learning path instead o
 - **Bayesian Knowledge Tracing (BKT)** - a per-user, per-topic mastery probability updated after every quiz answer.
 - **Groq LLM** - generates fresh 3-question multiple-choice quizzes, with a curated fallback bank.
 - **PostgreSQL** - users, progress, quiz sessions and attempt history.
-- **React** - dashboard, quizzes and an interactive knowledge graph.
+- **React** - dashboard, quizzes and an interactive knowledge graph (in progress: the app foundation is built; the screens follow).
 
 The first fully seeded domain is **Web Development** (30 topics).
 
@@ -16,7 +16,7 @@ See [PROJECT-STATE.md](PROJECT-STATE.md) for current progress. The specification
 
 | Layer | Technology |
 |---|---|
-| Frontend | React + Vite + Tailwind CSS, react-force-graph-2d |
+| Frontend | React 19 + Vite + Tailwind CSS v4 + shadcn/ui (Radix), React Router, Axios |
 | Backend | FastAPI (Python) |
 | Relational DB | PostgreSQL 15 + SQLAlchemy |
 | Graph DB | Neo4j 5 |
@@ -103,6 +103,31 @@ uvicorn main:app --reload --port 8000
 | http://127.0.0.1:8000/docs | Swagger UI |
 
 The API starts even if a database is down; the startup log and `/api/health` say which one is unreachable.
+
+### 4. Run the frontend
+
+From `frontend/`:
+
+```bash
+npm install
+npm run dev
+```
+
+Then open http://localhost:5173. The app talks to the API at `VITE_API_URL` (default `http://127.0.0.1:8000/api`); copy `frontend/.env.example` to `frontend/.env` only if the API runs elsewhere. The backend's `FRONTEND_URL` must include the app's origin (`http://localhost:5173` by default) or the browser blocks the requests (CORS).
+
+| Command (from `frontend/`) | What it does |
+|---|---|
+| `npm run dev` | Dev server with hot reload on port 5173 |
+| `npm run build` | Production build into `frontend/dist` |
+| `npm run preview` | Serve the production build locally |
+| `npm test` | Run the frontend tests once (Vitest + Testing Library, no backend needed) |
+| `npm run lint` | Lint with oxlint |
+
+**Routes.** `/login` and `/register` are for signed-out visitors; a signed-in learner is sent on to the dashboard. `/`, `/onboarding`, `/dashboard`, `/quiz/:topicId` and `/graph` need a session; without one the learner goes to `/login`, and the page they wanted is remembered for after signing in. Unknown paths show a 404 page, and a page that crashes shows an error screen instead of a blank page.
+
+**Sessions.** The JWT is kept in `localStorage` and sent as `Authorization: Bearer ...` on every request. On load the app asks `/api/auth/me` who the token belongs to. If the server rejects the token (`401`), it is dropped and the learner sees "Your session has expired" on the login page; if the server can't be reached, the token is kept and the page offers a retry. Logging out (or in) in one tab applies to every open tab.
+
+**Theme.** Colours come from the AdaptLearn design palette (slate ink, teal primary, and the topic status colours: completed teal-500, in progress amber-500, unlocked teal-200, locked slate-500), defined once as CSS variables in `frontend/src/index.css` and used through Tailwind classes such as `bg-primary`, `text-ink` and `bg-status-completed`. The light status colours are used as fills with dark text, never as text on white.
 
 ### Authentication
 
@@ -288,6 +313,8 @@ Tests need the Docker PostgreSQL running. They use a separate database, `adaptle
 
 Neo4j Community has only one database, so the seeder tests write to their own throwaway domain (`pytest-seed`) and delete it afterwards; the real curriculum is never modified. They are skipped if Neo4j is not running.
 
+Frontend tests run with `npm test` from `frontend/`. They fake the HTTP layer, so they need neither the backend nor the databases.
+
 ### Database tables
 
 On startup the backend creates any missing PostgreSQL tables with SQLAlchemy's `Base.metadata.create_all()`:
@@ -351,8 +378,6 @@ Every API error returns JSON in the shape `{"detail": "Human-readable message"}`
 | `500` | Unexpected server error (details are logged, never sent to the client) |
 | `503` | PostgreSQL or Neo4j unavailable |
 
-Frontend run instructions will be added when the UI is built.
-
 ## Project structure
 
 ```text
@@ -371,7 +396,26 @@ adaptlearn/
 │   ├── seed/            # Curriculum data + idempotent Neo4j seeder
 │   ├── services/        # Business logic (auth, BKT, quiz, learning path)
 │   └── tests/           # pytest suite (runs against adaptlearn_test)
-└── frontend/            # React application (built last)
+└── frontend/            # React application
+    ├── index.html
+    ├── vite.config.js   # Vite, Tailwind, @ alias, chunking, Vitest
+    ├── components.json  # shadcn/ui settings
+    ├── .env.example
+    └── src/
+        ├── main.jsx, App.jsx, router.jsx   # entry, providers, route table
+        ├── index.css    # Tailwind + AdaptLearn palette tokens
+        ├── api/         # Axios client (token, 401 handling, error messages) + endpoint helpers
+        ├── context/     # AuthProvider (session state)
+        ├── hooks/       # useAuth
+        ├── routes/      # ProtectedRoute, PublicOnlyRoute
+        ├── components/
+        │   ├── ui/      # shadcn/ui primitives (button, card, badge, alert, input, ...)
+        │   ├── common/  # Loader, ErrorState, EmptyState, ProgressBar, PageHeader
+        │   ├── layout/  # AppShell, Navbar, AuthLayout, Logo
+        │   └── topics/  # TopicStatusBadge
+        ├── lib/         # topic status styles, redirect helper
+        ├── pages/       # one component per route
+        └── test/        # Vitest setup and helpers
 ```
 
 ## Security notes
