@@ -1,5 +1,5 @@
 import { ChevronDown, LayoutDashboard, LogOut, Network } from 'lucide-react'
-import { Link, NavLink, useNavigate } from 'react-router'
+import { Link, NavLink } from 'react-router'
 import { cn } from 'cn'
 
 import { Logo } from '@/components/layout/Logo'
@@ -26,12 +26,6 @@ function initials(name = '') {
 
 export function Navbar() {
   const { user, logout } = useAuth()
-  const navigate = useNavigate()
-
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
 
   return (
     <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
@@ -75,7 +69,8 @@ export function Navbar() {
                 <span className="truncate text-xs font-normal text-muted-foreground">{user?.email}</span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={handleLogout}>
+              {/* ProtectedRoute then sends the learner to /login, without remembering this page. */}
+              <DropdownMenuItem onSelect={logout}>
                 <LogOut aria-hidden="true" />
                 Log out
               </DropdownMenuItem>

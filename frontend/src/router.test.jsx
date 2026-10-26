@@ -1,34 +1,30 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createMemoryRouter, RouterProvider } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchCurrentUser } from '@/api/auth'
+import { fetchCurrentUser, loginRequest } from '@/api/auth'
 import api, { tokenStorage } from '@/api/client'
-import { AuthProvider } from '@/context/AuthProvider'
-import { routes } from '@/router'
-import { deferred, fakeServer, LEARNER, networkError } from '@/test/helpers'
+import { fetchLearningPath } from '@/api/topics'
+import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
+import { renderAt as mount } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({
   fetchCurrentUser: vi.fn(),
   loginRequest: vi.fn(),
   registerRequest: vi.fn(),
 }))
+vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn() }))
 
-function renderAt(entry) {
-  const router = createMemoryRouter(routes, { initialEntries: [entry] })
-  render(
-    <AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider>,
-  )
-  return router
-}
+const renderAt = (entry) => mount(entry).router
 
 function signedIn(user = LEARNER) {
   tokenStorage.set('jwt-123')
   fetchCurrentUser.mockResolvedValue(user)
 }
+
+beforeEach(() => {
+  fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: true, curriculum_complete: false, recommended: [] })
+})
 
 const PROTECTED = ['/', '/onboarding', '/dashboard', '/quiz/css_basics', '/graph']
 
@@ -78,25 +74,45 @@ describe('signed in', () => {
     expect(screen.getByRole('button', { name: 'Account menu' })).toHaveTextContent('Puja Sharma')
   })
 
-  it('/ goes to the dashboard', async () => {
-    signedIn()
-    const router = renderAt('/')
-    await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
-    expect(router.state.location.pathname).toBe('/dashboard')
-  })
-
-  it.each(['/login', '/register'])('%s sends a signed-in learner to the dashboard', async (path) => {
+  it.each(['/', '/login', '/register'])('%s sends an onboarded learner to the dashboard', async (path) => {
     signedIn()
     const router = renderAt(path)
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
     expect(router.state.location.pathname).toBe('/dashboard')
   })
 
-  it('returns to the remembered page after signing in', async () => {
+  it.each(['/', '/login', '/register'])('%s sends a learner who has not onboarded to onboarding', async (path) => {
+    signedIn()
+    fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: false, curriculum_complete: false, recommended: [] })
+    const router = renderAt(path)
+    await screen.findByRole('heading', { name: 'What do you already know?' })
+    expect(router.state.location.pathname).toBe('/onboarding')
+  })
+
+  it('falls back to the dashboard if the learning path cannot be loaded', async () => {
+    signedIn()
+    fetchLearningPath.mockRejectedValue(httpError(503, 'Curriculum service is temporarily unavailable.'))
+    const router = renderAt('/')
+    await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
+    expect(router.state.location.pathname).toBe('/dashboard')
+  })
+
+  it('shows a loader while deciding where to go', async () => {
+    signedIn()
+    const path = deferred()
+    fetchLearningPath.mockReturnValue(path.promise)
+    renderAt('/')
+    expect(await screen.findByText('Getting things ready…', { selector: 'p' })).toBeInTheDocument()
+    await act(async () => path.resolve({ onboarded: true }))
+    expect(screen.getByRole('heading', { name: 'Welcome back, Puja Sharma' })).toBeInTheDocument()
+  })
+
+  it('returns to the remembered page after signing in, without asking for the learning path', async () => {
     signedIn()
     const router = renderAt({ pathname: '/login', state: { from: { pathname: '/quiz/css_basics', search: '' } } })
     await screen.findByRole('heading', { name: 'Quiz' })
     expect(router.state.location.pathname).toBe('/quiz/css_basics')
+    expect(fetchLearningPath).not.toHaveBeenCalled()
   })
 
   it('shows the quiz topic from the URL', async () => {
@@ -136,6 +152,35 @@ describe('signed in', () => {
     expect(router.state.location.pathname).toBe('/login')
     expect(tokenStorage.get()).toBeNull()
     expect(screen.queryByText(/session has expired/i)).not.toBeInTheDocument()
+  })
+
+  it('logging out does not remember the page, so the next login starts fresh', async () => {
+    signedIn()
+    loginRequest.mockResolvedValue({ access_token: 'jwt-2', token_type: 'bearer', user: LEARNER })
+    const user = userEvent.setup()
+    const router = renderAt('/graph')
+    await user.click(await screen.findByRole('button', { name: 'Account menu' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Log out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    expect(router.state.location.state?.from).toBeUndefined()
+
+    await user.type(screen.getByLabelText('Email'), 'someone@example.com')
+    await user.type(screen.getByLabelText('Password'), 'StrongPassword123')
+    await user.click(screen.getByRole('button', { name: 'Log in' }))
+    await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
+    expect(router.state.location.pathname).toBe('/dashboard')
+  })
+
+  it('logging out in another tab does not remember the page either', async () => {
+    signedIn()
+    const router = renderAt('/graph')
+    await screen.findByRole('heading', { name: 'Knowledge graph' })
+    localStorage.removeItem('adaptlearn.token')
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'adaptlearn.token', oldValue: 'jwt-123', newValue: null }))
+    })
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    expect(router.state.location.state?.from).toBeUndefined()
   })
 })
 

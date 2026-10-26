@@ -8,7 +8,7 @@ import { Loader, Spinner } from '@/components/common/Loader'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ProgressBar } from '@/components/common/ProgressBar'
 import { TopicStatusBadge } from '@/components/topics/TopicStatusBadge'
-import { redirectTarget } from '@/lib/redirect'
+import { rememberedTarget } from '@/lib/redirect'
 
 describe('ProgressBar', () => {
   it.each([
@@ -94,14 +94,15 @@ describe('EmptyState, Loader, PageHeader', () => {
   })
 })
 
-describe('redirectTarget', () => {
+describe('rememberedTarget', () => {
   it.each([
-    [undefined, '/dashboard'],
-    [{ pathname: '/login' }, '/dashboard'],
-    [{ pathname: '/register' }, '/dashboard'],
+    [undefined, null],
+    [{ pathname: '/' }, null],
+    [{ pathname: '/login' }, null],
+    [{ pathname: '/register' }, null],
     [{ pathname: '/graph' }, '/graph'],
     [{ pathname: '/quiz/css_basics', search: '?a=1', hash: '#q2' }, '/quiz/css_basics?a=1#q2'],
   ])('%j -> %s', (from, expected) => {
-    expect(redirectTarget(from)).toBe(expected)
+    expect(rememberedTarget(from)).toBe(expected)
   })
 })

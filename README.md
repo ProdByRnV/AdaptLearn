@@ -123,7 +123,9 @@ Then open http://localhost:5173. The app talks to the API at `VITE_API_URL` (def
 | `npm test` | Run the frontend tests once (Vitest + Testing Library, no backend needed) |
 | `npm run lint` | Lint with oxlint |
 
-**Routes.** `/login` and `/register` are for signed-out visitors; a signed-in learner is sent on to the dashboard. `/`, `/onboarding`, `/dashboard`, `/quiz/:topicId` and `/graph` need a session; without one the learner goes to `/login`, and the page they wanted is remembered for after signing in. Unknown paths show a 404 page, and a page that crashes shows an error screen instead of a blank page.
+**Routes.** `/login` and `/register` are for signed-out visitors. `/`, `/onboarding`, `/dashboard`, `/quiz/:topicId` and `/graph` need a session; without one the learner goes to `/login`, and the page they wanted is remembered for after signing in (except after choosing to log out, so the next person on a shared computer starts fresh). Unknown paths show a 404 page, and a page that crashes shows an error screen instead of a blank page.
+
+**Signing in.** The register form asks for a username, email, password and password confirmation (there is no password reset yet, so a typo would lock the account); the login form for email and password. Both check the backend's rules before sending (username up to 80 characters, a valid email, password 8 characters to 72 bytes), show each problem next to its field, and show server answers in plain language: "Incorrect email or password", "An account with this email already exists" on the email field, or "Can't reach the AdaptLearn server". After signing in the learner goes to the remembered page if there is one; otherwise to `/onboarding` until they have onboarded (always the case for a new account) and to `/dashboard` after that, decided by `onboarded` from `GET /api/topics/learning-path`.
 
 **Sessions.** The JWT is kept in `localStorage` and sent as `Authorization: Bearer ...` on every request. On load the app asks `/api/auth/me` who the token belongs to. If the server rejects the token (`401`), it is dropped and the learner sees "Your session has expired" on the login page; if the server can't be reached, the token is kept and the page offers a retry. Logging out (or in) in one tab applies to every open tab.
 
@@ -404,16 +406,17 @@ adaptlearn/
     └── src/
         ├── main.jsx, App.jsx, router.jsx   # entry, providers, route table
         ├── index.css    # Tailwind + AdaptLearn palette tokens
-        ├── api/         # Axios client (token, 401 handling, error messages) + endpoint helpers
+        ├── api/         # Axios client (token, 401 handling, error messages) + auth and topics endpoints
         ├── context/     # AuthProvider (session state)
-        ├── hooks/       # useAuth
-        ├── routes/      # ProtectedRoute, PublicOnlyRoute
+        ├── hooks/       # useAuth, useForm
+        ├── routes/      # ProtectedRoute, PublicOnlyRoute, PostAuthRedirect
         ├── components/
         │   ├── ui/      # shadcn/ui primitives (button, card, badge, alert, input, ...)
         │   ├── common/  # Loader, ErrorState, EmptyState, ProgressBar, PageHeader
+        │   ├── forms/   # TextField, PasswordField, FormAlert, SubmitButton
         │   ├── layout/  # AppShell, Navbar, AuthLayout, Logo
         │   └── topics/  # TopicStatusBadge
-        ├── lib/         # topic status styles, redirect helper
+        ├── lib/         # validation rules, server-error mapping, topic status styles, redirect helper
         ├── pages/       # one component per route
         └── test/        # Vitest setup and helpers
 ```

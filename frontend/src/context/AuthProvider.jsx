@@ -11,6 +11,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(() => tokenStorage.get() !== null)
   const [bootError, setBootError] = useState(null)
   const [sessionExpired, setSessionExpired] = useState(false)
+  // True after the learner chose to log out (here or in another tab). The login page then starts
+  // fresh instead of returning to the last page, which matters on a shared computer.
+  const [loggedOut, setLoggedOut] = useState(false)
 
   // Bumped whenever the session changes, so a /auth/me answer for an older session is ignored.
   const generation = useRef(0)
@@ -59,6 +62,7 @@ export function AuthProvider({ children }) {
     setToken(data.access_token)
     setUser(data.user)
     setSessionExpired(false)
+    setLoggedOut(false)
     setBootError(null)
     setLoading(false)
     return data.user
@@ -69,6 +73,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     setSessionExpired(false)
+    setLoggedOut(true)
     clearSession()
   }, [clearSession])
 
@@ -84,6 +89,7 @@ export function AuthProvider({ children }) {
     () =>
       setUnauthorizedHandler(() => {
         setSessionExpired(true)
+        setLoggedOut(false)
         clearSession()
       }),
     [clearSession],
@@ -96,6 +102,7 @@ export function AuthProvider({ children }) {
       const next = tokenStorage.get()
       if (!next) {
         setSessionExpired(false)
+        setLoggedOut(true)
         clearSession()
       } else if (event.key === null || event.newValue !== event.oldValue) {
         setToken(next)
@@ -114,13 +121,14 @@ export function AuthProvider({ children }) {
       loading,
       isAuthenticated: Boolean(token && user),
       sessionExpired,
+      loggedOut,
       bootError,
       register,
       login,
       logout,
       refreshUser,
     }),
-    [user, token, loading, sessionExpired, bootError, register, login, logout, refreshUser],
+    [user, token, loading, sessionExpired, loggedOut, bootError, register, login, logout, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

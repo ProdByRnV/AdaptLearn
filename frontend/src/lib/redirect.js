@@ -1,8 +1,11 @@
-const PUBLIC_PATHS = ['/login', '/register']
+const NOT_REMEMBERED = ['/', '/login', '/register']
 
-/** Where to go after signing in: the protected page the learner was sent away from, or the dashboard. */
-export function redirectTarget(from) {
+/**
+ * The protected page a learner was sent away from (path, query and hash), or null when there is
+ * nothing worth returning to and the app should choose between onboarding and the dashboard.
+ */
+export function rememberedTarget(from) {
   const path = from?.pathname
-  if (!path || PUBLIC_PATHS.includes(path)) return '/dashboard'
+  if (!path || NOT_REMEMBERED.includes(path)) return null
   return `${path}${from.search ?? ''}${from.hash ?? ''}`
 }

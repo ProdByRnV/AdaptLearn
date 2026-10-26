@@ -9,6 +9,7 @@ import { AuthContext } from '@/context/auth-context'
  *   loading: boolean,
  *   isAuthenticated: boolean,
  *   sessionExpired: boolean,
+ *   loggedOut: boolean,
  *   bootError: string | null,
  *   register: (fields: {username: string, email: string, password: string}) => Promise<object>,
  *   login: (fields: {email: string, password: string}) => Promise<object>,

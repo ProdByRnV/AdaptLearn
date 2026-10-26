@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-26
-**Current phase:** Phase 13 complete (React foundation) - Phase 14 (Login & Register UI) up next
+**Current phase:** Phase 14 complete (Login & Register UI) - Phase 15 (Onboarding UI) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -25,9 +25,9 @@ Phases follow the project roadmap (a private specification document, not in this
 | 11 | Quiz Submission & Progress Update | Done | `fcba616` |
 | 12 | Dashboard API | Done | `480dd10` |
 | 12.5 | Proctoring - server side (inserted) | Done | `15b0ed6` |
-| 13 | React Foundation | Done | latest |
-| 14 | Login & Register UI | Next | - |
-| 15 | Onboarding UI | Pending | - |
+| 13 | React Foundation | Done | `ee21ad1` |
+| 14 | Login & Register UI | Done | latest |
+| 15 | Onboarding UI | Next | - |
 | 16 | Dashboard UI | Pending | - |
 | 17 | Quiz UI | Pending | - |
 | 18 | Knowledge Graph UI | Pending | - |
@@ -49,8 +49,8 @@ Phases follow the project roadmap (a private specification document, not in this
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions`, plus (Phase 12.5) `quiz_responses`, `proctoring_events`, `quiz_integrity` - all created automatically on backend startup (`create_all`; the new tables were added to the existing dev database without a reset) |
 | Groq | API key set in `backend/.env`; model `openai/gpt-oss-120b` (reasoning effort low). Live quizzes generate in ~1.7-2.0s; without Groq the curated fallback bank is used |
 | Demo account | `demo@adaptlearn.dev` in the local dev database only (password shared outside the repo; not a real credential): onboarded with HTML Basics, then 6 real AI quizzes (CSS 3/3, Git 2/3, JavaScript 1/3, SQL 0/3, 1/3, 0/3), so the dashboard has real data and SQL Basics needs attention. Log in with it in Swagger (`/api/auth/login`, then Authorize). Remove with: `docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "delete from users where email='demo@adaptlearn.dev'"` |
-| Frontend | `frontend/`: React 19.3 + Vite 8 + Tailwind CSS 4.3 + shadcn/ui (Radix, Nova preset) + React Router 8 + Axios, all versions pinned exactly. Dev server on `5173` (`npm run dev`). Built so far: palette theme, routing with protected/public-only guards, Axios client (Bearer token, session-ending 401 handling, error messages, Retry-After), AuthProvider/useAuth (session restore via `/auth/me`, cross-tab sync), AppShell/Navbar/AuthLayout, shared loaders/error/empty states/progress bar/status badge. Pages are placeholders until Phases 14-18 |
-| Tests | Backend: 393 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 116 quiz generation + submission (mostly parametrized), 17 dashboard/progress, 41 proctoring, 4 CORS. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database. Frontend: 84 passing (`npm test` from `frontend/`): 22 API client, 14 auth provider, 26 routing, 1 crash screen, 21 shared components/helpers; no backend needed |
+| Frontend | `frontend/`: React 19.3 + Vite 8 + Tailwind CSS 4.3 + shadcn/ui (Radix, Nova preset) + React Router 8 + Axios, all versions pinned exactly. Dev server on `5173` (`npm run dev`). Built so far: palette theme, routing with protected/public-only guards, Axios client (Bearer token, session-ending 401 handling, error messages, Retry-After), AuthProvider/useAuth (session restore via `/auth/me`, cross-tab sync), AppShell/Navbar/AuthLayout, shared loaders/error/empty states/progress bar/status badge. Phase 14: working login and register forms (validation matching the backend, server errors on the right field, show/hide password, confirm password) and the post-sign-in redirect (remembered page, else onboarding or dashboard by `onboarded`). Onboarding, dashboard, quiz and graph pages are placeholders until Phases 15-18 |
+| Tests | Backend: 393 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 116 quiz generation + submission (mostly parametrized), 17 dashboard/progress, 41 proctoring, 4 CORS. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database. Frontend: 141 passing (`npm test` from `frontend/`): 22 API client, 14 auth provider, 33 routing, 1 crash screen, 22 shared components/helpers, 23 validation and server-error mapping, 14 login page, 12 register page; no backend needed |
 
 ### Start the local environment
 
@@ -152,6 +152,10 @@ Notes for the frontend:
 | `VITE_API_URL=http://localhost:8000/api` | Default `http://127.0.0.1:8000/api` | Same reason as the database hosts: avoids the IPv6 `localhost` detour on Windows |
 | CORS exposes no headers | `expose_headers=["Retry-After"]` | Browsers hide response headers from cross-origin pages; the quiz page needs Retry-After from 429s |
 | Font not specified (the PDF's font names aren't readable) | Geist Variable, self-hosted via `@fontsource-variable/geist` (shadcn Nova preset) | No external font requests; neutral sans that matches the PDF's clean style |
+| Phase 14: "build exactly according to `UI.md`" | `UI.md` doesn't exist; the forms follow the palette and the Phase 13 auth layout | Owner said to ignore the missing UI.md |
+| Register fields: username, email, password (US-01) | Adds a "Confirm password" field (client-only, not sent) and show/hide toggles on password fields | No password reset exists, so a typo would lock the learner out |
+| `/` → `/dashboard` if authenticated (PRD 16) | `/` and sign-in go to `/onboarding` until the learner has onboarded, then `/dashboard` | US-01 sends new accounts to onboarding; a learner who registered and left before onboarding should land there too |
+| Redirect after login unspecified beyond US-02 | Back to the page that required login; never after a voluntary logout | Convenience, without sending the next person on a shared computer to the previous learner's page |
 | Quiz contract (ARCHITECTURE 13.8 / 13.9): generate returns all 3 questions; submit takes `{quiz_id, answers}` | Generate returns no questions; `POST /quiz/{id}/next` serves one at a time with a deadline, `POST /quiz/{id}/answer` locks each answer, `POST /quiz/{id}/events` takes proctoring signals, `GET /quiz/active` resumes; submit takes only `{quiz_id}` and adds `integrity` | Proctoring (decision 10): a page holding all questions at once could be answered with outside help and no timing control |
 | No proctoring in the PRD | Integrity score (start 100, penalties per signal, verified at 80+); flagged attempts saved but change no progress; abandoned quizzes never count | Owner decision |
 | No generation limits in the PRD | 5 quizzes per topic and 30 overall per user per hour (`429` + `Retry-After`), checked before the AI call | Stops regenerate-until-easy and protects Groq quota |
@@ -216,19 +220,20 @@ Notes for the frontend:
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
 - **Recommendation ranking (built as specified, worth revisiting):** the spec ranks the frontier by difficulty then name, so easy side topics always come first. In the live check, a learner who marked React Hooks as known was recommended Git Basics, Semantic HTML and Arrays & Objects ahead of React Router, the same top 3 as a learner who only knew HTML/CSS/JS. A track-aware ranking (e.g. prefer topics that unlock what the learner just finished) could be a later enhancement.
 - **Resource links can rot:** all 81 URLs were live on 2026-10-04. Re-check them before deployment (Phase 21).
-- **Onboarding redirect not wired yet:** `/auth/me` doesn't say whether a learner has onboarded (the learning-path and dashboard responses do, via `onboarded`). Phase 14/15 decides where to send a learner after login/registration using `GET /topics/learning-path`.
+- **Dashboard doesn't yet send un-onboarded learners to onboarding:** sign-in and `/` already do (via `onboarded` from `GET /topics/learning-path`), but opening `/dashboard` directly before onboarding shows the dashboard. Phase 16 should show an onboarding prompt using the dashboard response's own `onboarded` flag.
+- **No password reset or change:** not in the PRD. The register form asks for the password twice and has show/hide toggles to limit typos; an account with a forgotten password can only be recreated.
 - **JWT in `localStorage`** (as the spec designs it): readable by any script on the page, so an XSS bug would expose the token. Acceptable for the MVP; HttpOnly cookies with refresh tokens are the hardening path (README security notes).
-- **Placeholder pages:** login, register, onboarding, dashboard, quiz and graph pages currently say which phase builds them.
+- **Placeholder pages:** onboarding, dashboard, quiz and graph pages currently say which phase builds them.
 - **Dev auto-reload under the assistant:** `uvicorn --reload` hangs on Windows when started without a console (the reloader can't deliver Ctrl+C to the worker). Doesn't affect running it in a normal terminal; the assistant restarts the server manually instead.
 
 ---
 
 ## Next step
 
-**The backend API is complete** (Phases 1-12, plus proctoring in 12.5), covered by 393 tests. **The frontend foundation is in place** (Phase 13): theme, routing, session handling and shared components, covered by 84 tests and a live browser check.
+**The backend API is complete** (Phases 1-12, plus proctoring in 12.5), covered by 393 tests. **The frontend foundation is in place** (Phase 13) and **learners can register, log in and log out from the browser** (Phase 14), covered by 141 frontend tests and live browser checks.
 
-**Phase 14 - Login & Register UI:** real forms on the existing `/login` and `/register` routes using `useAuth().login/register`, client-side validation matching the backend (password 8 characters to 72 bytes), server errors shown via `getErrorMessage`, a redirect to onboarding or the dashboard (via `onboarded` from the learning path), and the "session expired" message already wired in.
+**Phase 15 - Onboarding UI:** the domain header, a selectable grid of the 30 topics (from `GET /topics/all`), a selected counter, submitting to `POST /topics/mark-known` (showing which prerequisites were filled in automatically), loading and error states, and a redirect to the dashboard.
 
-Exit gate: register and login work from the browser, auth survives a refresh, logout works.
+Exit gate: onboarding from the browser changes the learner's actual learning path.
 
 The quiz screens (Phase 17) must use the proctored flow and implement the layer 2 browser monitoring described in the open items.

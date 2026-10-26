@@ -1,5 +1,3 @@
-import { Navigate } from 'react-router'
-
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthLayout } from '@/components/layout/AuthLayout'
 import Dashboard from '@/pages/Dashboard'
@@ -10,6 +8,7 @@ import Onboarding from '@/pages/Onboarding'
 import QuizPage from '@/pages/QuizPage'
 import Register from '@/pages/Register'
 import RouteError from '@/pages/RouteError'
+import { PostAuthRedirect } from '@/routes/PostAuthRedirect'
 import { ProtectedRoute } from '@/routes/ProtectedRoute'
 import { PublicOnlyRoute } from '@/routes/PublicOnlyRoute'
 
@@ -33,7 +32,7 @@ export const routes = [
       {
         element: <ProtectedRoute />,
         children: [
-          { path: '/', element: <Navigate to="/dashboard" replace /> },
+          { path: '/', element: <PostAuthRedirect /> },
           {
             element: <AppShell />,
             children: [
