@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -6,6 +6,7 @@ import { fetchCurrentUser, loginRequest } from '@/api/auth'
 import api, { tokenStorage } from '@/api/client'
 import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
 import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
+import { fetchDashboard } from '@/api/progress'
 import { renderAt as mount } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({
@@ -13,6 +14,7 @@ vi.mock('@/api/auth', () => ({
   loginRequest: vi.fn(),
   registerRequest: vi.fn(),
 }))
+vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
 
 const renderAt = (entry) => mount(entry).router
@@ -23,6 +25,8 @@ function signedIn(user = LEARNER) {
 }
 
 beforeEach(() => {
+  // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
+  fetchDashboard.mockReturnValue(new Promise(() => {}))
   // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
   fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: true, curriculum_complete: false, recommended: [] })
@@ -136,7 +140,8 @@ describe('signed in', () => {
     const user = userEvent.setup()
     const router = renderAt('/dashboard')
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
-    await user.click(screen.getByRole('link', { name: 'Knowledge graph' }))
+    const nav = screen.getByRole('navigation', { name: 'Main' })
+    await user.click(within(nav).getByRole('link', { name: 'Knowledge graph' }))
     expect(router.state.location.pathname).toBe('/graph')
     expect(screen.getByRole('list', { name: 'Topic status legend' })).toHaveTextContent(
       'CompletedIn progressUnlockedLocked',

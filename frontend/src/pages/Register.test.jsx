@@ -6,9 +6,11 @@ import { registerRequest } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
 import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
 import { deferred, httpError, networkError } from '@/test/helpers'
+import { fetchDashboard } from '@/api/progress'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
+vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
 
 const NEW_USER = { id: 12, username: 'New Learner', email: 'new@example.com' }
@@ -32,6 +34,8 @@ async function open() {
 }
 
 beforeEach(() => {
+  // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
+  fetchDashboard.mockReturnValue(new Promise(() => {}))
   // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
   fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: false, curriculum_complete: false, recommended: [] })

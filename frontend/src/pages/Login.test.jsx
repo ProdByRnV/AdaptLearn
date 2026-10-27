@@ -6,9 +6,11 @@ import { fetchCurrentUser, loginRequest } from '@/api/auth'
 import api, { tokenStorage } from '@/api/client'
 import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
 import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
+import { fetchDashboard } from '@/api/progress'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
+vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
 
 const session = { access_token: 'jwt-login', token_type: 'bearer', user: LEARNER }
@@ -25,6 +27,8 @@ async function fillAndSubmit(user, email = 'puja@example.com', password = 'Stron
 }
 
 beforeEach(() => {
+  // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
+  fetchDashboard.mockReturnValue(new Promise(() => {}))
   // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
   fetchLearningPath.mockResolvedValue(path(true))

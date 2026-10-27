@@ -7,9 +7,11 @@ import { tokenStorage } from '@/api/client'
 import { fetchTopicGraph, markKnownTopics } from '@/api/topics'
 import { topicGraph } from '@/test/fixtures'
 import { deferred, httpError, LEARNER, networkError } from '@/test/helpers'
+import { fetchDashboard } from '@/api/progress'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
+vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
 
 const box = (name) => screen.getByRole('checkbox', { name })
@@ -32,6 +34,8 @@ function result(knownCount, added = []) {
 }
 
 beforeEach(() => {
+  // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
+  fetchDashboard.mockReturnValue(new Promise(() => {}))
   markKnownTopics.mockResolvedValue(result(0))
 })
 

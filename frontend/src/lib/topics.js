@@ -52,6 +52,18 @@ export function impliedPrerequisites(topicsById, selected, exclude = new Set()) 
   return implied
 }
 
+/**
+ * The primary action for a topic the learner can study (PRD 9: Start Topic / Continue / Retry Quiz).
+ * `retry` is true when the learner's latest quiz on it failed or the topic needs attention.
+ */
+export function topicAction(topic, { retry = false } = {}) {
+  const to = `/quiz/${encodeURIComponent(topic.id)}`
+  if (topic.status === 'completed') return { label: 'Practise again', to }
+  if (retry) return { label: 'Retry quiz', to }
+  if (topic.status === 'in_progress') return { label: 'Continue', to }
+  return { label: 'Start topic', to }
+}
+
 /** "A", "A and B", "A, B and 2 more" */
 export function listNames(names, max = 2) {
   if (names.length <= max) return names.length === 2 ? `${names[0]} and ${names[1]}` : names.join('')

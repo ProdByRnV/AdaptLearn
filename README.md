@@ -129,6 +129,8 @@ Then open http://localhost:5173. The app talks to the API at `VITE_API_URL` (def
 
 **Onboarding** (`/onboarding`). Shows the domain and the PRD's explanation, then every topic from `GET /api/topics/graph`, grouped by difficulty (Beginner, Intermediate, Advanced, Expert). Ticking a topic also ticks everything it depends on, marked "Included: needed for ...", because the server marks prerequisites of known topics as known too; the live counter ("7 topics selected (5 included as prerequisites)") therefore matches what will be saved. Topics a returning learner has already completed are shown ticked. Saving sends only the explicit choices to `POST /api/topics/mark-known` and opens the dashboard with a confirmation; saving with nothing ticked starts from the beginning. Loading shows a skeleton, a failed load offers a retry, and a failed save keeps the selection.
 
+**Dashboard** (`/dashboard`). Everything comes from one call, `GET /api/progress/dashboard`; nothing on the page is hard-coded. It shows: stat cards for overall progress, completed topics (and how many are in progress), mastered topics (95% or more), average mastery and quiz attempts (noting flagged ones that didn't count); **Up next**, the three recommended topics with difficulty, status, description, prerequisites ("Builds on ..."), mastery and one action (**Start topic** for an unlocked topic, **Continue** for one in progress, **Retry quiz** when the latest counted quiz on it failed or it needs attention); **Needs attention**, topics with more than 2 attempts and under 50% mastery, listing their resources before a retry; **Recent quizzes**, the last five with score, result, mastery before and after, and a "Flagged, didn't count" badge for attempts that failed the integrity check; and **Mastery**, a compact bar per reachable topic with locked topics behind a toggle. It also covers a learner who hasn't onboarded (a prompt to choose known topics), the curriculum-complete state, loading, and errors with a retry.
+
 **Sessions.** The JWT is kept in `localStorage` and sent as `Authorization: Bearer ...` on every request. On load the app asks `/api/auth/me` who the token belongs to. If the server rejects the token (`401`), it is dropped and the learner sees "Your session has expired" on the login page; if the server can't be reached, the token is kept and the page offers a retry. Logging out (or in) in one tab applies to every open tab.
 
 **Theme.** Colours come from the AdaptLearn design palette (slate ink, teal primary, and the topic status colours: completed teal-500, in progress amber-500, unlocked teal-200, locked slate-500), defined once as CSS variables in `frontend/src/index.css` and used through Tailwind classes such as `bg-primary`, `text-ink` and `bg-status-completed`. The light status colours are used as fills with dark text, never as text on white.
@@ -317,7 +319,7 @@ Tests need the Docker PostgreSQL running. They use a separate database, `adaptle
 
 Neo4j Community has only one database, so the seeder tests write to their own throwaway domain (`pytest-seed`) and delete it afterwards; the real curriculum is never modified. They are skipped if Neo4j is not running.
 
-Frontend tests run with `npm test` from `frontend/`. They fake the HTTP layer, so they need neither the backend nor the databases.
+Frontend tests run with `npm test` from `frontend/`. They fake the HTTP layer, so they need neither the backend nor the databases; any request that would reach a real server fails the test.
 
 ### Database tables
 
@@ -408,18 +410,19 @@ adaptlearn/
     └── src/
         ├── main.jsx, App.jsx, router.jsx   # entry, providers, route table
         ├── index.css    # Tailwind + AdaptLearn palette tokens
-        ├── api/         # Axios client (token, 401 handling, error messages) + auth and topics endpoints
+        ├── api/         # Axios client (token, 401 handling, error messages) + auth, topics and progress endpoints
         ├── context/     # AuthProvider (session state)
         ├── hooks/       # useAuth, useForm, useApiData
         ├── routes/      # ProtectedRoute, PublicOnlyRoute, PostAuthRedirect
         ├── components/
         │   ├── ui/      # shadcn/ui primitives (button, card, badge, alert, input, ...)
         │   ├── common/  # Loader, ErrorState, EmptyState, ProgressBar, PageHeader
+        │   ├── dashboard/   # StatCard, RecommendedTopicCard, AttentionCard, RecentAttempts, MasteryOverview
         │   ├── forms/   # TextField, PasswordField, FormAlert, SubmitButton
         │   ├── onboarding/  # TopicOption, SelectionBar
         │   ├── layout/  # AppShell, Navbar, AuthLayout, Logo
-        │   └── topics/  # TopicStatusBadge
-        ├── lib/         # validation rules, server-error mapping, topic helpers (difficulty, prerequisites), status styles, redirect helper
+        │   └── topics/  # TopicStatusBadge, ResourceList
+        ├── lib/         # validation rules, server-error mapping, topic helpers (difficulty, prerequisites, actions), formatting, status styles, redirect helper
         ├── pages/       # one component per route
         └── test/        # Vitest setup and helpers
 ```
