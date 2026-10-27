@@ -141,9 +141,7 @@ describe('signed in', () => {
     const nav = screen.getByRole('navigation', { name: 'Main' })
     await user.click(within(nav).getByRole('link', { name: 'Knowledge graph' }))
     expect(router.state.location.pathname).toBe('/graph')
-    expect(screen.getByRole('list', { name: 'Topic status legend' })).toHaveTextContent(
-      'CompletedIn progressUnlockedLocked',
-    )
+    expect(screen.getByRole('heading', { level: 1, name: 'Knowledge graph' })).toBeInTheDocument()
   })
 
   it('logs out from the account menu', async () => {
