@@ -152,7 +152,8 @@ export function useQuizSession(topicId) {
     if (status === 404) return end('missing')
     if (status === 409) return onConflict ? onConflict() : end('submitted')
     setBusy(null)
-    setStepError({ message: getErrorMessage(error), retry })
+    // offline: no answer at all, as opposed to the server explaining a problem (e.g. a database down).
+    setStepError({ message: getErrorMessage(error), retry, offline: !error?.response })
   }
 
   async function loadQuestion({ expiredId = null, tries = 0 } = {}) {

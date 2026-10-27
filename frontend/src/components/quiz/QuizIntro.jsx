@@ -1,4 +1,5 @@
 import { ArrowRight, Clock, Hourglass, ListChecks, Loader2, Lock, ShieldCheck, Trophy } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 
 import { TopicStatusBadge } from '@/components/topics/TopicStatusBadge'
@@ -112,12 +113,30 @@ function PrepareButton({ preparing, retryAt, retryAfter, onPrepare }) {
           </>
         )}
       </Button>
+      {preparing && <SlowPreparation />}
       {wait > 0 && (
         <p className="text-sm text-muted-foreground">
           You can start another quiz in <span className="font-medium tabular-nums text-ink">{formatClock(wait)}</span>.
         </p>
       )}
     </div>
+  )
+}
+
+// Generation normally takes a few seconds; when the AI is slow the server gives up after about
+// 12 s and uses the curated bank, so say so rather than leave a silent spinner.
+const SLOW_AFTER_MS = 5000
+
+function SlowPreparation() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_AFTER_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  return (
+    <p role="status" className="text-sm text-muted-foreground">
+      {slow ? "This is taking longer than usual. If the AI doesn't answer soon, you'll get questions from AdaptLearn's curated bank instead." : ''}
+    </p>
   )
 }
 

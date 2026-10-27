@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
 **Last updated:** 2026-10-26
-**Current phase:** Phase 18 complete (Knowledge Graph UI) - Phase 19 (Error, Loading & Edge Cases) up next
+**Current phase:** Phase 19 complete (Error, Loading & Edge Cases) - Phase 20 (Testing & Cleanup) up next
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -30,9 +30,9 @@ Phases follow the project roadmap (a private specification document, not in this
 | 15 | Onboarding UI | Done | `3c307b8` |
 | 16 | Dashboard UI | Done | `14c3783` |
 | 17 | Quiz UI | Done | `ed2ec8e` |
-| 18 | Knowledge Graph UI | Done | latest |
-| 19 | Error, Loading & Edge Cases | Next | - |
-| 20 | Testing & Cleanup | Pending | - |
+| 18 | Knowledge Graph UI | Done | `f96959e` |
+| 19 | Error, Loading & Edge Cases | Done | latest |
+| 20 | Testing & Cleanup | Next | - |
 | 21 | Deployment Readiness | Pending | - |
 
 ---
@@ -43,14 +43,14 @@ Phases follow the project roadmap (a private specification document, not in this
 |---|---|
 | PostgreSQL 15 | Running in Docker on `5432`, database `adaptlearn`, healthy |
 | Neo4j 5.26 Community | Running in Docker on `7474` / `7687`, healthy. Holds the Web Development curriculum: 30 topics, 37 prerequisite edges, seeded on every backend startup |
-| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections, CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `GET /api/topics/learning-path`, `POST /api/topics/mark-known`, `GET /api/quiz/generate/{topic_id}`, `GET /api/quiz/active`, `POST /api/quiz/{id}/next`, `POST /api/quiz/{id}/answer`, `POST /api/quiz/{id}/events`, `POST /api/quiz/submit`, `GET /api/progress/dashboard`, `GET /api/progress/all`, Swagger at `/docs` |
+| Backend | FastAPI app on `8000`: settings, PostgreSQL + Neo4j connections (Neo4j fails fast during an outage), CORS, consistent errors, JWT auth. Routes: `GET /`, `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/topics/all`, `GET /api/topics/graph`, `GET /api/topics/learning-path`, `POST /api/topics/mark-known`, `GET /api/quiz/generate/{topic_id}`, `GET /api/quiz/active`, `POST /api/quiz/{id}/next`, `POST /api/quiz/{id}/answer`, `POST /api/quiz/{id}/events`, `POST /api/quiz/submit`, `GET /api/progress/dashboard`, `GET /api/progress/all`, Swagger at `/docs` |
 | Backend venv | `backend/venv` (Python 3.13.5) with `requirements.txt` installed |
 | Backend config | `backend/.env` created locally from `.env.example` with a generated `JWT_SECRET_KEY` (git-ignored) |
 | Database tables | `users`, `topic_progress`, `quiz_attempts`, `quiz_sessions`, plus (Phase 12.5) `quiz_responses`, `proctoring_events`, `quiz_integrity` - all created automatically on backend startup (`create_all`; the new tables were added to the existing dev database without a reset) |
 | Groq | API key set in `backend/.env`; model `openai/gpt-oss-120b` (reasoning effort low). Live quizzes generate in ~1.7-2.0s; without Groq the curated fallback bank is used |
 | Demo account | `demo@adaptlearn.dev` in the local dev database only (password shared outside the repo; not a real credential): onboarded with HTML Basics, then 6 real AI quizzes (CSS 3/3, Git 2/3, JavaScript 1/3, SQL 0/3, 1/3, 0/3), so the dashboard has real data and SQL Basics needs attention. Log in with it in Swagger (`/api/auth/login`, then Authorize). Remove with: `docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "delete from users where email='demo@adaptlearn.dev'"` |
 | Frontend | `frontend/`: React 19.3 + Vite 8 + Tailwind CSS 4.3 + shadcn/ui (Radix, Nova preset) + React Router 8 + Axios + react-force-graph-2d 1.29 (with d3-force-3d), all versions pinned exactly. Dev server on `5173` (`npm run dev`). Built so far: palette theme, routing with protected/public-only guards, Axios client (Bearer token, session-ending 401 handling, error messages, Retry-After), AuthProvider/useAuth (session restore via `/auth/me`, cross-tab sync), AppShell/Navbar/AuthLayout, shared loaders/error/empty states/progress bar/status badge. Phase 14: working login and register forms (validation matching the backend, server errors on the right field, show/hide password, confirm password) and the post-sign-in redirect (remembered page, else onboarding or dashboard by `onboarded`). Phase 15: onboarding screen (topics by difficulty, prerequisites ticked automatically with an explanation, live counter, returning learners see completed topics, save to `mark-known`, dashboard confirmation). Phase 16: dashboard from `GET /progress/dashboard` (stat cards, Up next with Start/Continue/Retry, Needs attention with resources, recent quizzes with integrity badges, mastery bars, onboarding prompt, curriculum-complete, loading/error). Phase 17: the proctored quiz on `/quiz/:topicId` (intro, server rules, fullscreen, one question at a time with the server countdown, lock-in after a 3 s reading time, timeouts, heartbeats and browser signals with on-screen notices, leave guard, resume, result with integrity verdict, explanations, resources, unlocked topics and next topics; 403/409/410/429/503 handling; code blocks in AI questions). Phase 18: the knowledge graph on `/graph` (canvas laid out by prerequisite depth, arrows, status colours plus marks, legend with counts, zoom/pan/fit, readable start view on phones, side panel with lock-aware action, prerequisites, unlocks and resources, selection in the URL, list view for keyboard and screen readers; the graph library loads only on this page) |
-| Tests | Backend: 399 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 122 quiz generation + submission (mostly parametrized), 17 dashboard/progress, 41 proctoring, 4 CORS. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database. Frontend: 332 passing (`npm test` from `frontend/`): 22 API client, 14 auth provider, 32 routing, 1 crash screen, 22 shared components/helpers, 23 validation and server-error mapping, 14 login page, 12 register page, 17 topic helpers, 16 onboarding page, 30 formatting, topic actions and quiz text, 23 dashboard page, 12 proctoring reporter and browser helpers, 45 quiz page, 29 graph helpers and drawing, 20 graph page; no backend needed (a guard fails any test that would make a real HTTP request) |
+| Tests | Backend: 407 passing (`pytest` from `backend/`): 33 auth, 21 curriculum data/validator, 8 Neo4j seeder (isolated `pytest-seed` domain), 21 topics API, 28 onboarding/frontier, 17 learning path, 87 BKT, 122 quiz generation + submission (mostly parametrized), 17 dashboard/progress, 41 proctoring, 4 CORS, 8 Neo4j fail-fast. Tests never call the real Groq API. PostgreSQL tests use the separate `adaptlearn_test` database. Frontend: 335 passing (`npm test` from `frontend/`): 22 API client, 14 auth provider, 33 routing, 1 crash screen, 22 shared components/helpers, 23 validation and server-error mapping, 14 login page, 12 register page, 17 topic helpers, 16 onboarding page, 30 formatting, topic actions and quiz text, 23 dashboard page, 12 proctoring reporter and browser helpers, 47 quiz page, 29 graph helpers and drawing, 20 graph page; no backend needed (a guard fails any test that would make a real HTTP request) |
 
 ### Start the local environment
 
@@ -236,6 +236,9 @@ Notes for the frontend:
 - **The graph canvas is visual only:** screen readers get a text summary and the List view, which has the same detail panel. Zoom and fit buttons work from the keyboard; topics on the canvas can only be picked with a pointer or touch.
 - **Graph status colours are read from CSS:** the canvas reads the palette tokens (`--status-*`) at load; a theme change at runtime would need a reload. Only the light theme exists.
 - **Graph library size:** `react-force-graph-2d` and its d3 modules are about 60 KB gzipped. They sit in their own chunk, loaded only by the graph page (checked: not requested on the dashboard).
+- **A slow AI costs the learner ~11 s:** when Groq doesn't answer, the backend waits for its 10 s request timeout before using the curated bank (no retry). The page explains the wait after 5 s. Lowering `REQUEST_TIMEOUT_SECONDS` would shorten it at the cost of giving up on slow-but-working answers.
+- **Neo4j fail-fast window:** for 5 s after a Neo4j failure, every graph request gets an immediate 503 even if Neo4j has just come back; the learner's next **Try again** after that works. A single process holds this state; with several backend workers each has its own.
+- **Mid-quiz outages can flag an attempt:** if the connection or the backend is down for more than 15 s during a quiz, heartbeats stop reaching the server and the gap counts against integrity (as designed). The attempt can be retaken.
 - **"Retry quiz" uses the last five attempts:** the dashboard response only carries the latest 5 quizzes, so a failed quiz older than that falls back to "Continue" (topics needing attention always show "Retry quiz"). Accurate enough for the action label; a per-topic `last_passed` field would make it exact.
 - **Domain names come from the frontend:** the API returns the domain slug (`web-development`); `src/lib/topics.js` maps it to "Web Development" (title-casing unknown slugs). A `domain_name` field in the API would be cleaner once there is more than one domain.
 - **Dev auto-reload under the assistant:** `uvicorn --reload` hangs on Windows when started without a console (the reloader can't deliver Ctrl+C to the worker). Doesn't affect running it in a normal terminal; the assistant restarts the server manually instead.
@@ -244,8 +247,8 @@ Notes for the frontend:
 
 ## Next step
 
-**The backend API is complete** (Phases 1-12, plus proctoring in 12.5), covered by 399 tests. **The frontend foundation is in place** (Phase 13), **learners can register, log in and log out** (Phase 14), **onboard** (Phase 15), **see their real progress on the dashboard** (Phase 16) and **take proctored quizzes in the browser** (Phase 17) and **explore the curriculum as an interactive graph** (Phase 18), covered by 332 frontend tests and live browser checks.
+**The backend API is complete** (Phases 1-12, plus proctoring in 12.5), covered by 407 tests. **The frontend foundation is in place** (Phase 13), **learners can register, log in and log out** (Phase 14), **onboard** (Phase 15), **see their real progress on the dashboard** (Phase 16) and **take proctored quizzes in the browser** (Phase 17) and **explore the curriculum as an interactive graph** (Phase 18). **Every failure the roadmap lists has been tried live and ends on a clear, recoverable screen** (Phase 19). Covered by 335 frontend tests and live browser checks.
 
-**Phase 19 - Error, Loading & Edge Cases:** explicitly test, end to end, the cases the roadmap lists: a brand-new user, marking zero or all topics known, no recommendations left, Groq timeout and malformed JSON, PostgreSQL and Neo4j temporarily down, an expired JWT, a locked topic opened by URL, an expired quiz session, a double submission and a network drop during submit. Fix whatever the browser shows badly in each case.
+**Phase 20 - Testing & Cleanup:** run the complete backend suite and confirm coverage of auth, BKT, learning path, quiz security, quiz persistence and confusion detection; check the frontend at 360 px, tablet and desktop widths, keyboard navigation and visible focus, no console errors and no failed requests in a normal flow; clean up debug logs, unused imports, dead routes, test credentials and placeholder text, and confirm no `.env` is committed.
 
-Exit gate: every listed case shows a clear, recoverable state in the UI and never a blank page or raw error.
+Exit gate: every check passes and the code is clean.

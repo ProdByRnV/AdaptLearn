@@ -388,6 +388,19 @@ Every API error returns JSON in the shape `{"detail": "Human-readable message"}`
 | `500` | Unexpected server error (details are logged, never sent to the client) |
 | `503` | PostgreSQL or Neo4j unavailable |
 
+**When things go wrong.** Each failure has a defined, recoverable outcome, checked end to end in the browser (Phase 19):
+
+| Situation | What the learner sees |
+|---|---|
+| PostgreSQL down | The server's "Database is temporarily unavailable" message with **Try again**: on any page, at login (what was typed is kept), mid-quiz (the quiz carries on after the retry), or at startup (a branded page with **Try again** and **Log out**; the session is kept). Recovers without restarting the backend |
+| Neo4j down | "Curriculum service is temporarily unavailable" with **Try again** on the dashboard, graph and quiz submit (nothing is saved, so retrying is safe). After one failure the backend answers 503 at once for 5 s, then lets one request check whether Neo4j is back, so requests don't pile up past the browser's 15 s timeout |
+| Groq slow or down | No retry; after about 10 s the quiz comes from the curated bank, inside the browser's 15 s timeout. After 5 s the page says it is taking longer and explains the fallback |
+| Groq returns malformed or wrong-shaped JSON | Retried twice, then the curated bank (under a second) |
+| No connection | "Can't reach the AdaptLearn server" with **Try again**; during a quiz the timer keeps running on the server and nothing already locked in is lost |
+| Expired login | Back to login with "Your session has expired"; after logging in, the page that was open |
+| Locked or unknown topic by URL | What to complete first, or "Topic not found", with a way back |
+| Quiz expired, or submitted in another tab | An end screen ("This quiz has expired" / "already submitted") with **Start a new quiz**; the server refuses a second submission (409) |
+
 ## Project structure
 
 ```text

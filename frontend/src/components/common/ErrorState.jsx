@@ -1,6 +1,7 @@
 import { AlertTriangle, RotateCw } from 'lucide-react'
 import { cn } from 'cn'
 
+import { Logo } from '@/components/layout/Logo'
 import { Button } from '@/components/ui/button'
 
 export function ErrorState({
@@ -9,8 +10,10 @@ export function ErrorState({
   onRetry,
   retryLabel = 'Try again',
   action,
+  headingLevel = 2,
   className,
 }) {
+  const Heading = `h${headingLevel}`
   return (
     <div
       role="alert"
@@ -19,7 +22,7 @@ export function ErrorState({
       <div className="flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <AlertTriangle aria-hidden="true" className="size-5" />
       </div>
-      <h2 className="text-base font-semibold text-ink">{title}</h2>
+      <Heading className="text-base font-semibold text-ink">{title}</Heading>
       {message && <p className="max-w-md text-sm text-body">{message}</p>}
       {(onRetry || action) && (
         <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
@@ -36,6 +39,12 @@ export function ErrorState({
   )
 }
 
+/** The whole page is the error (startup, crashes): branded, with the title as the page heading. */
 export function FullPageError(props) {
-  return <ErrorState {...props} className={cn('min-h-svh', props.className)} />
+  return (
+    <div className="flex min-h-svh flex-col items-center justify-center gap-4 px-4">
+      <Logo markClassName="size-8" />
+      <ErrorState headingLevel={1} {...props} className={cn('py-6', props.className)} />
+    </div>
+  )
 }

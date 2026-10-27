@@ -102,7 +102,13 @@ export function QuizRunner({ session }) {
           <Loader label="Scoring your quiz…" />
         ) : stepError ? (
           <ErrorState
-            title={submitting ? "Couldn't submit your quiz" : "Couldn't reach the server"}
+            title={
+              submitting
+                ? "Couldn't submit your quiz"
+                : stepError.offline
+                  ? "Couldn't reach the server"
+                  : "Couldn't continue the quiz"
+            }
             message={`${stepError.message} ${submitting ? 'Nothing was lost; try again.' : 'The timer keeps running on the server.'}`}
             onRetry={stepError.retry}
             className="rounded-xl border bg-card"

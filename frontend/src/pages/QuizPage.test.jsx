@@ -180,6 +180,21 @@ describe('preparing', () => {
     expect(nextQuestion).not.toHaveBeenCalled()
   })
 
+  it('reassures the learner when preparing takes longer than usual', async () => {
+    generateQuiz.mockReturnValue(new Promise(() => {}))
+    const { user } = await open('html_basics', { timers: true })
+    await user.click(screen.getByRole('button', { name: 'Prepare quiz' }))
+    expect(screen.getByRole('button', { name: /Preparing your questions/ })).toBeDisabled()
+    await advance(4000)
+    expect(screen.queryByText(/taking longer than usual/)).not.toBeInTheDocument()
+    await advance(1100)
+    expect(
+      screen.getByText(
+        "This is taking longer than usual. If the AI doesn't answer soon, you'll get questions from AdaptLearn's curated bank instead.",
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('says when the questions come from the fallback bank', async () => {
     generateQuiz.mockResolvedValue(quizInfo({ source: 'fallback' }))
     const { user } = await open()
@@ -336,6 +351,20 @@ describe('taking the quiz', () => {
     expect(await screen.findByRole('heading', { name: 'Question text 2?' })).toBeInTheDocument()
     expect(answerQuestion).toHaveBeenCalledTimes(2)
     expect(answerQuestion).toHaveBeenLastCalledWith('quiz-1', 0, 1)
+  })
+
+  it('says the server could not continue when it answered with a problem, and retries', async () => {
+    answerQuestion.mockRejectedValueOnce(httpError(503, 'Database is temporarily unavailable. Please try again shortly.'))
+    const { user } = await open()
+    await startQuiz(user)
+    await answer(user, 'Option 1B')
+    expect(await screen.findByRole('heading', { name: "Couldn't continue the quiz" })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: "Couldn't reach the server" })).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Database is temporarily unavailable. Please try again shortly. The timer keeps running on the server.'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { name: 'Question text 2?' })).toBeInTheDocument()
   })
 
   it('moves on when the question had already closed', async () => {

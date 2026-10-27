@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from 'react-router'
 
 import { FullPageError } from '@/components/common/ErrorState'
 import { FullPageLoader } from '@/components/common/Loader'
+import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
 
 /**
@@ -9,12 +10,24 @@ import { useAuth } from '@/hooks/useAuth'
  * they were going, unless they just logged out on purpose (the next login starts fresh).
  */
 export function ProtectedRoute() {
-  const { isAuthenticated, loading, bootError, refreshUser, loggedOut } = useAuth()
+  const { isAuthenticated, loading, bootError, refreshUser, loggedOut, logout } = useAuth()
   const location = useLocation()
 
   if (loading) return <FullPageLoader label="Checking your session…" />
   if (bootError) {
-    return <FullPageError title="Couldn't restore your session" message={bootError} onRetry={refreshUser} />
+    // Log out is the way out when the server stays unreachable (e.g. to hand over a shared computer).
+    return (
+      <FullPageError
+        title="Couldn't restore your session"
+        message={bootError}
+        onRetry={refreshUser}
+        action={
+          <Button variant="ghost" onClick={logout}>
+            Log out
+          </Button>
+        }
+      />
+    )
   }
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={loggedOut ? undefined : { from: location }} />

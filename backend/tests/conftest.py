@@ -100,6 +100,16 @@ def no_real_groq(monkeypatch):
     monkeypatch.setattr(llm_quiz, "call_groq", refuse)
 
 
+@pytest.fixture(autouse=True)
+def neo4j_breaker_reset():
+    """A Neo4j failure in one test must not make the next test fail fast."""
+    from db import neo4j_db
+
+    neo4j_db.reset_breaker()
+    yield
+    neo4j_db.reset_breaker()
+
+
 def sample_quiz_json() -> str:
     """A valid 3-question quiz; option 0 ("Right answer N") is correct before shuffling."""
     import json

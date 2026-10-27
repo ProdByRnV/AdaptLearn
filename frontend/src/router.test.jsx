@@ -212,6 +212,21 @@ describe('checking the session', () => {
     expect(await screen.findByRole('heading', { name: 'Knowledge graph' })).toBeInTheDocument()
   })
 
+  it('the startup error page is branded and offers a way to log out', async () => {
+    tokenStorage.set('jwt-123')
+    fetchCurrentUser.mockRejectedValueOnce(httpError(503, 'Database is temporarily unavailable. Please try again shortly.'))
+    const user = userEvent.setup()
+    const router = renderAt('/dashboard')
+    expect(await screen.findByRole('heading', { level: 1, name: "Couldn't restore your session" })).toBeInTheDocument()
+    expect(screen.getByText('Database is temporarily unavailable. Please try again shortly.')).toBeInTheDocument()
+    expect(screen.getByText('AdaptLearn')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Log out' }))
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/login')
+    expect(router.state.location.state).toBeNull()
+    expect(tokenStorage.get()).toBeNull()
+  })
+
   it('an expired session mid-use returns to login with an explanation', async () => {
     signedIn()
     const router = renderAt('/dashboard')
