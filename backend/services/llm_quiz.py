@@ -43,7 +43,11 @@ Each question must contain:
 Do not use "All of the above" or "None of the above".
 Questions should test understanding, not obscure trivia, and match the stated difficulty.
 Prefer applied questions - a short scenario or code snippet the learner must reason about - over
-definitions that could be looked up in seconds."""
+definitions that could be looked up in seconds.
+Put a code snippet in a fenced block (```javascript ... ```) inside the question, with line breaks
+between its lines; use single backticks for short inline code.
+Each option must be a complete answer on its own. Never write options that refer to choices listed
+in the question (such as "A" or "option B"): the app labels the options itself."""
 
 DIFFICULTY_LABELS = {1: "beginner", 2: "early intermediate", 3: "intermediate", 4: "advanced"}
 

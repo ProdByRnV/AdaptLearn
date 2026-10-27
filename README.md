@@ -131,6 +131,8 @@ Then open http://localhost:5173. The app talks to the API at `VITE_API_URL` (def
 
 **Dashboard** (`/dashboard`). Everything comes from one call, `GET /api/progress/dashboard`; nothing on the page is hard-coded. It shows: stat cards for overall progress, completed topics (and how many are in progress), mastered topics (95% or more), average mastery and quiz attempts (noting flagged ones that didn't count); **Up next**, the three recommended topics with difficulty, status, description, prerequisites ("Builds on ..."), mastery and one action (**Start topic** for an unlocked topic, **Continue** for one in progress, **Retry quiz** when the latest counted quiz on it failed or it needs attention); **Needs attention**, topics with more than 2 attempts and under 50% mastery, listing their resources before a retry; **Recent quizzes**, the last five with score, result, mastery before and after, and a "Flagged, didn't count" badge for attempts that failed the integrity check; and **Mastery**, a compact bar per reachable topic with locked topics behind a toggle. It also covers a learner who hasn't onboarded (a prompt to choose known topics), the curriculum-complete state, loading, and errors with a retry.
 
+**Quiz** (`/quiz/:topicId`). The proctored quiz in the browser. The page first shows the topic and how the quiz works (a locked topic explains which prerequisites to finish; an unfinished quiz on another topic is flagged, since starting abandons it). **Prepare quiz** calls `GET /quiz/generate/{topic_id}` and shows the server's integrity rules, the time per question and a notice when the questions come from the curated fallback bank. **Enter fullscreen and start** serves one question at a time (`POST /quiz/{id}/next`) with the server's countdown; the learner picks an option and **locks it in** (`POST /quiz/{id}/answer`), which is possible after a 3-second reading time (faster answers are penalised). When time runs out, a selected answer is sent; otherwise the question times out and the page moves on. While the quiz runs, the navbar is hidden and the page sends a heartbeat every 5 s plus tab switches, window switches, leaving fullscreen, copy/cut/paste and right-click (all blocked) and a second screen (`screen.isExtended`) to `POST /quiz/{id}/events`; each recorded event is shown to the learner with its penalty, and leaving fullscreen offers a way back. The back button asks before leaving and a reload warns first; reopening the page resumes the quiz with its timer intact (`GET /quiz/active`). The result shows the score, pass or retry, mastery before and after, the integrity verdict with its reasons (a flagged attempt didn't count and changed nothing), newly unlocked topics, resources after a failed quiz, every answer with its explanation, and what to learn next. Code in AI questions is shown as code blocks. Errors are handled: 403 locked, 429 with a countdown from `Retry-After`, 503, expired (410) and already-submitted (409) quizzes, and network failures with a retry.
+
 **Sessions.** The JWT is kept in `localStorage` and sent as `Authorization: Bearer ...` on every request. On load the app asks `/api/auth/me` who the token belongs to. If the server rejects the token (`401`), it is dropped and the learner sees "Your session has expired" on the login page; if the server can't be reached, the token is kept and the page offers a retry. Logging out (or in) in one tab applies to every open tab.
 
 **Theme.** Colours come from the AdaptLearn design palette (slate ink, teal primary, and the topic status colours: completed teal-500, in progress amber-500, unlocked teal-200, locked slate-500), defined once as CSS variables in `frontend/src/index.css` and used through Tailwind classes such as `bg-primary`, `text-ink` and `bg-status-completed`. The light status colours are used as fills with dark text, never as text on white.
@@ -410,9 +412,9 @@ adaptlearn/
     └── src/
         ├── main.jsx, App.jsx, router.jsx   # entry, providers, route table
         ├── index.css    # Tailwind + AdaptLearn palette tokens
-        ├── api/         # Axios client (token, 401 handling, error messages) + auth, topics and progress endpoints
+        ├── api/         # Axios client (token, 401 handling, error messages) + auth, topics, progress and quiz endpoints
         ├── context/     # AuthProvider (session state)
-        ├── hooks/       # useAuth, useForm, useApiData
+        ├── hooks/       # useAuth, useForm, useApiData, useQuizSession (quiz flow), useProctoring (browser monitoring), useNow
         ├── routes/      # ProtectedRoute, PublicOnlyRoute, PostAuthRedirect
         ├── components/
         │   ├── ui/      # shadcn/ui primitives (button, card, badge, alert, input, ...)
@@ -420,9 +422,10 @@ adaptlearn/
         │   ├── dashboard/   # StatCard, RecommendedTopicCard, AttentionCard, RecentAttempts, MasteryOverview
         │   ├── forms/   # TextField, PasswordField, FormAlert, SubmitButton
         │   ├── onboarding/  # TopicOption, SelectionBar
-        │   ├── layout/  # AppShell, Navbar, AuthLayout, Logo
+        │   ├── layout/  # AppShell (with focus mode), Navbar, AuthLayout, Logo
+        │   ├── quiz/    # QuizIntro, QuizReady, QuizRunner, QuestionCard, QuizResult, QuizEnded, LeaveQuizDialog, QuizText
         │   └── topics/  # TopicStatusBadge, ResourceList
-        ├── lib/         # validation rules, server-error mapping, topic helpers (difficulty, prerequisites, actions), formatting, status styles, redirect helper
+        ├── lib/         # validation rules, server-error mapping, topic helpers (difficulty, prerequisites, actions), formatting (incl. code in quiz text), proctoring event reporter, status styles, redirect helper
         ├── pages/       # one component per route
         └── test/        # Vitest setup and helpers
 ```

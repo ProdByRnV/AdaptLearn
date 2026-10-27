@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -17,6 +18,17 @@ def _normalise(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+_LETTER_ONLY = re.compile(r"^\(?[A-D][).:]?$", re.IGNORECASE)
+
+
+def _unescape_code(text: str) -> str:
+    """Models sometimes double-escape the line breaks in a code block, sending a literal backslash-n.
+    Text with a code fence but no real line break can only mean that."""
+    if "```" in text and "\n" not in text and "\\n" in text:
+        return text.replace("\\n", "\n")
+    return text
+
+
 # --- Internal: quiz content with answers (LLM output, fallback bank, quiz_sessions) ---
 
 class QuizQuestion(BaseModel):
@@ -28,12 +40,21 @@ class QuizQuestion(BaseModel):
     correct: StrictInt = Field(ge=0, le=OPTIONS_PER_QUESTION - 1)
     explanation: NonEmpty
 
+    @field_validator("question", "explanation")
+    @classmethod
+    def repair_code_line_breaks(cls, text: str) -> str:
+        return _unescape_code(text)
+
     @field_validator("options")
     @classmethod
     def options_are_distinct(cls, options: list[str]) -> list[str]:
         if len({_normalise(o) for o in options}) != len(options):
             raise ValueError("options must be distinct")
-        return options
+        # ["D", "A", "B", "C"] points at choices written into the question, which clash with the
+        # letters the quiz page shows next to each option.
+        if all(_LETTER_ONLY.match(o) for o in options):
+            raise ValueError("options must be answers, not letters referring to the question")
+        return [_unescape_code(o) for o in options]
 
 
 class QuizContent(BaseModel):

@@ -7,6 +7,7 @@ import api, { tokenStorage } from '@/api/client'
 import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
 import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
 import { fetchDashboard } from '@/api/progress'
+import { fetchActiveQuiz } from '@/api/quiz'
 import { renderAt as mount } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({
@@ -16,6 +17,7 @@ vi.mock('@/api/auth', () => ({
 }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/quiz', () => ({ fetchActiveQuiz: vi.fn(), generateQuiz: vi.fn(), nextQuestion: vi.fn(), answerQuestion: vi.fn(), reportEvents: vi.fn(), submitQuiz: vi.fn() }))
 
 const renderAt = (entry) => mount(entry).router
 
@@ -27,6 +29,8 @@ function signedIn(user = LEARNER) {
 beforeEach(() => {
   // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
   fetchDashboard.mockReturnValue(new Promise(() => {}))
+  // The quiz page's own behaviour is tested in QuizPage.test.jsx; here it just stays loading.
+  fetchActiveQuiz.mockReturnValue(new Promise(() => {}))
   // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
   fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: true, curriculum_complete: false, recommended: [] })
@@ -119,12 +123,6 @@ describe('signed in', () => {
     await screen.findByRole('heading', { name: 'Quiz' })
     expect(router.state.location.pathname).toBe('/quiz/css_basics')
     expect(fetchLearningPath).not.toHaveBeenCalled()
-  })
-
-  it('shows the quiz topic from the URL', async () => {
-    signedIn()
-    renderAt('/quiz/git_basics')
-    expect(await screen.findByText('Topic: git_basics')).toBeInTheDocument()
   })
 
   it('marks the active nav link', async () => {

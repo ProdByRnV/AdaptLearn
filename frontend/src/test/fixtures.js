@@ -96,3 +96,73 @@ export function topicGraph({ completed = [] } = {}) {
   const links = nodes.flatMap((t) => t.prerequisites.map((source) => ({ source, target: t.id })))
   return { domain: 'web-development', nodes, links }
 }
+
+const RULES = [
+  { code: 'tab_hidden', penalty: 10, message: 'Switched to another tab' },
+  { code: 'window_blur', penalty: 5, message: 'Switched to another window' },
+  { code: 'fullscreen_exit', penalty: 15, message: 'Left fullscreen' },
+  { code: 'copy_attempt', penalty: 10, message: 'Tried to copy question text' },
+  { code: 'paste_attempt', penalty: 10, message: 'Tried to paste' },
+  { code: 'context_menu', penalty: 5, message: 'Opened the right-click menu' },
+  { code: 'multiple_screens', penalty: 20, message: 'A second screen was detected' },
+  { code: 'fast_answer', penalty: 10, message: 'Answered in under 3 seconds' },
+]
+
+/** A /quiz/generate (or /quiz/active) response. */
+export function quizInfo(overrides = {}) {
+  return {
+    quiz_id: 'quiz-1',
+    topic: { id: 'html_basics', name: 'HTML Basics' },
+    total_questions: 3,
+    answered_questions: 0,
+    seconds_per_question: 60,
+    expires_in_seconds: 1800,
+    source: 'ai',
+    proctoring: { verified_threshold: 80, heartbeat_interval_seconds: 5, rules: RULES },
+    ...overrides,
+  }
+}
+
+/**
+ * A /quiz/{id}/next response for question `number` (1-based). seconds_remaining defaults to 57,
+ * so the minimum reading time has already passed and the answer can be locked in at once.
+ */
+export function quizQuestion(number = 1, overrides = {}) {
+  return {
+    question_id: number - 1,
+    number,
+    total: 3,
+    question: `Question text ${number}?`,
+    options: [`Option ${number}A`, `Option ${number}B`, `Option ${number}C`, `Option ${number}D`],
+    deadline: new Date(Date.now() + 57_000).toISOString(),
+    seconds_remaining: 57,
+    ...overrides,
+  }
+}
+
+/** A /quiz/submit response: 2 of 3, passed and verified. Override any part. */
+export function quizResult(overrides = {}) {
+  const base = {
+    topic_id: 'html_basics',
+    score: 2,
+    total: 3,
+    passed: true,
+    p_know_before: 0.1,
+    p_know_after: 0.762,
+    mastered: false,
+    status: 'completed',
+    needs_attention: false,
+    feedback: [
+      { question: 'Which tag makes the main heading?', options: ['<header>', '<title>', '<h1>', '<h3>'], selected: 2, correct: 2, is_correct: true, timed_out: false, explanation: '<h1> is the top-level heading.' },
+      { question: 'Which attribute holds the image path?', options: ['href', 'src', 'link', 'path'], selected: 1, correct: 1, is_correct: true, timed_out: false, explanation: 'src points to the image file.' },
+      { question: 'Which list is unordered?', options: ['<ul>', '<ol>', '<dl>', '<list>'], selected: 1, correct: 0, is_correct: false, timed_out: false, explanation: '<ul> is an unordered list.' },
+    ],
+    recommended_resources: [],
+    newly_unlocked: ['css_basics', 'javascript_fundamentals'],
+    next_topics: [
+      { id: 'css_basics', name: 'CSS Basics', description: 'Styling pages.', difficulty: 1, status: 'unlocked', mastery: 10, prerequisites: ['html_basics'], prerequisite_names: ['HTML Basics'] },
+    ],
+    integrity: { score: 100, verdict: 'verified', counted: true, reasons: [] },
+  }
+  return { ...base, ...overrides, integrity: { ...base.integrity, ...overrides.integrity } }
+}

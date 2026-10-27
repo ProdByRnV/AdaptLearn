@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatPercent, timeAgo } from '@/lib/format'
+import { formatClock, formatPercent, splitCode, timeAgo } from '@/lib/format'
 import { topicAction } from '@/lib/topics'
 
 describe('formatPercent', () => {
@@ -43,5 +43,55 @@ describe('topicAction', () => {
 
   it('encodes the topic id in the link', () => {
     expect(topicAction({ id: 'a b/c', status: 'unlocked' }).to).toBe('/quiz/a%20b%2Fc')
+  })
+})
+
+describe('formatClock', () => {
+  it.each([
+    [60, '1:00'],
+    [65, '1:05'],
+    [9, '0:09'],
+    [0, '0:00'],
+    [-3, '0:00'],
+    [599.7, '9:59'],
+    [undefined, '0:00'],
+  ])('%s -> %s', (seconds, text) => {
+    expect(formatClock(seconds)).toBe(text)
+  })
+})
+
+describe('splitCode', () => {
+  it('leaves plain text alone', () => {
+    expect(splitCode('Which tag is a heading?')).toEqual([{ kind: 'text', value: 'Which tag is a heading?' }])
+  })
+
+  it('finds inline code', () => {
+    expect(splitCode('Use `<h1>` for the `main` title')).toEqual([
+      { kind: 'text', value: 'Use ' },
+      { kind: 'code', value: '<h1>' },
+      { kind: 'text', value: ' for the ' },
+      { kind: 'code', value: 'main' },
+      { kind: 'text', value: ' title' },
+    ])
+  })
+
+  it('finds a fenced block and drops its language and edge line breaks', () => {
+    expect(splitCode('What is logged?\n\n```javascript\nlet n = 1;\nconsole.log(n)\n```\nPick one.')).toEqual([
+      { kind: 'text', value: 'What is logged?' },
+      { kind: 'block', value: 'let n = 1;\nconsole.log(n)' },
+      { kind: 'text', value: 'Pick one.' },
+    ])
+  })
+
+  it('handles a block with no text around it, and inline code after it', () => {
+    expect(splitCode('```\na()\n``` then `b`')).toEqual([
+      { kind: 'block', value: 'a()' },
+      { kind: 'text', value: ' then ' },
+      { kind: 'code', value: 'b' },
+    ])
+  })
+
+  it('keeps an unclosed backtick as text', () => {
+    expect(splitCode('a ` b')).toEqual([{ kind: 'text', value: 'a ` b' }])
   })
 })

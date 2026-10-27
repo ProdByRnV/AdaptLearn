@@ -128,6 +128,40 @@ def test_missing_field_is_rejected():
         parse_quiz(quiz_json(q, make_question(1), make_question(2)))
 
 
+@pytest.mark.parametrize("options", [["D", "A", "B", "C"], ["a)", "(b)", "C.", "d:"]])
+def test_options_that_only_name_letters_are_rejected(options):
+    # The page shows its own A-D labels, so "C: B" would be unreadable.
+    q = make_question(0, question="Which is most specific? A) p B) #main C) .x D) div", options=options)
+    with pytest.raises(InvalidQuizOutput, match="not letters"):
+        parse_quiz(quiz_json(q, make_question(1), make_question(2)))
+
+
+def test_a_single_letter_among_real_options_is_allowed():
+    q = make_question(0, options=["A", "65", "undefined", "NaN"])
+    assert parse_quiz(quiz_json(q, make_question(1), make_question(2)))[0].options[0] == "A"
+
+
+def test_double_escaped_line_breaks_in_code_are_repaired():
+    # The model sent a literal backslash-n instead of a line break inside a code fence.
+    question = "What is logged?\\n```javascript\\nlet n = 0;\\nconsole.log(n);\\n```"
+    q = make_question(0, question=question, explanation="It logs 0.\\n```js\\nn === 0\\n```")
+    parsed = parse_quiz(quiz_json(q, make_question(1), make_question(2)))[0]
+    assert parsed.question == "What is logged?\n```javascript\nlet n = 0;\nconsole.log(n);\n```"
+    assert parsed.explanation == "It logs 0.\n```js\nn === 0\n```"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What does console.log('a\\nb') print?",  # a backslash-n that belongs to the code
+        "What is logged?\n```js\nconsole.log('a\\nb')\n```",  # real line breaks already present
+    ],
+)
+def test_meaningful_backslash_n_is_kept(question):
+    parsed = parse_quiz(quiz_json(make_question(0, question=question), make_question(1), make_question(2)))[0]
+    assert parsed.question == question
+
+
 # --- generate_questions: retries and fallback ---------------------------------------------
 
 def test_valid_first_answer_uses_ai(fake_llm):
