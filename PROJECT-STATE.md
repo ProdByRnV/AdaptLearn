@@ -1,7 +1,7 @@
 # AdaptLearn - Project State
 
-**Last updated:** 2026-10-26
-**Current phase:** Phase 20 complete (Testing & Cleanup) - Phase 21 (Deployment Readiness) up next
+**Last updated:** 2026-10-30
+**Current phase:** Complete for local use (Phases 1-20). Phase 21 (Deployment Readiness) deferred by the owner: AdaptLearn runs on localhost only for now
 **Repository:** https://github.com/ProdByRnV/AdaptLearn
 
 ---
@@ -32,8 +32,8 @@ Phases follow the project roadmap (a private specification document, not in this
 | 17 | Quiz UI | Done | `ed2ec8e` |
 | 18 | Knowledge Graph UI | Done | `f96959e` |
 | 19 | Error, Loading & Edge Cases | Done | `370c03f` |
-| 20 | Testing & Cleanup | Done | latest |
-| 21 | Deployment Readiness | Next | - |
+| 20 | Testing & Cleanup | Done | `1501ee9` |
+| 21 | Deployment Readiness | Deferred (local only); final demo passed locally | latest |
 
 ---
 
@@ -226,11 +226,11 @@ Notes for the frontend:
 - **Groq model churn:** Groq has retired two Llama models during this project. If `openai/gpt-oss-120b` is retired, quizzes keep working via the fallback bank (logged as HTTP 4xx); switch `GROQ_MODEL` in `.env` - no code change needed.
 - **Fallback bank repeats:** it has exactly 3 questions per topic, so a learner who retakes a topic while Groq is down sees the same questions (options are reshuffled). Adding more questions per topic and sampling 3 would fix this.
 - **Expired quiz sessions accumulate:** `quiz_sessions` rows are never deleted. Harmless at MVP scale; a periodic cleanup of expired, unsubmitted sessions would keep the table small.
-- **Rate limiting:** quiz generation is now limited per user (Phase 12.5); login/register still have no rate limit. Recommended by the PRD before public deployment (Phase 21).
+- **Rate limiting:** quiz generation is now limited per user (Phase 12.5); login/register still have no rate limit. Recommended by the PRD before any public deployment.
 - **Spec documents in git history:** PRD/ROADMAP/ARCHITECTURE were untracked on 2026-10-26 but remain readable in the Phase 1 commit (`accb6cd`); the owner chose not to rewrite history.
 - **No migrations:** schema changes need the dev reset above. Move to Alembic before any deployment holds real user data.
 - **Recommendation ranking (built as specified, worth revisiting):** the spec ranks the frontier by difficulty then name, so easy side topics always come first. In the live check, a learner who marked React Hooks as known was recommended Git Basics, Semantic HTML and Arrays & Objects ahead of React Router, the same top 3 as a learner who only knew HTML/CSS/JS. A track-aware ranking (e.g. prefer topics that unlock what the learner just finished) could be a later enhancement.
-- **Resource links can rot:** all 81 URLs were live on 2026-10-04. Re-check them before deployment (Phase 21).
+- **Resource links can rot:** all 81 URLs were live on 2026-10-04. Re-check them before any deployment.
 - **No password reset or change:** not in the PRD. The register form asks for the password twice and has show/hide toggles to limit typos; an account with a forgotten password can only be recreated.
 - **JWT in `localStorage`** (as the spec designs it): readable by any script on the page, so an XSS bug would expose the token. Acceptable for the MVP; HttpOnly cookies with refresh tokens are the hardening path (README security notes).
 - **The graph canvas is visual only:** screen readers get a text summary and the List view, which has the same detail panel. Zoom and fit buttons work from the keyboard; topics on the canvas can only be picked with a pointer or touch.
@@ -247,10 +247,10 @@ Notes for the frontend:
 
 ---
 
-## Next step
+## Where it stands
 
-**The backend API is complete** (Phases 1-12, plus proctoring in 12.5), covered by 407 tests. **The frontend foundation is in place** (Phase 13), **learners can register, log in and log out** (Phase 14), **onboard** (Phase 15), **see their real progress on the dashboard** (Phase 16) and **take proctored quizzes in the browser** (Phase 17) and **explore the curriculum as an interactive graph** (Phase 18). **Every failure the roadmap lists has been tried live and ends on a clear, recoverable screen** (Phase 19). Covered by 335 frontend tests and live browser checks.
+**AdaptLearn is complete for local use.** The backend API (Phases 1-12, proctoring in 12.5), the frontend (Phases 13-18), error and edge-case handling (Phase 19) and testing and cleanup (Phase 20) are done: 427 backend tests (99% coverage) and 335 frontend tests pass, and live browser checks covered every phase.
 
-**Phase 21 - Deployment Readiness:** production services (Neo4j Aura, Neon PostgreSQL, a Railway backend, a Vercel frontend, a Groq key), production environment variables (`APP_ENV=production` refuses the placeholder JWT secret; `postgres://` URLs from Neon are converted), CORS for the Vercel origin, HTTPS, the curriculum seed, and live checks of login, a full quiz, the graph and refreshing nested routes. This needs accounts on those services in the owner's name.
+**Final demo, run locally (2026-10-30):** the roadmap's 15-step demo script was run through the UI in Edge with real Groq quizzes, against both the dev server and the production build (`vite build` served by `vite preview`): open the login screen, register, onboard with known topics (prerequisites ticked automatically), the personalised dashboard, why locked topics aren't recommended (every recommendation has its prerequisites completed; a locked topic names what to finish first), start a topic, the AI loading state, a failed quiz (resources shown) then a passed retake (mastery 46% -> 100%, five topics unlocked), the updated recommendation, the graph (every topic drawn in its status colour, 37 prerequisite links, a click opens the detail panel), and logout with protected routes redirecting to login. Refreshing nested routes (`/graph?topic=...`, `/quiz/...`, `/onboarding`, `/dashboard`) keeps the learner signed in on that page. No console errors or failed requests. All 36 checks passed on both.
 
-Exit gate: the deployed app passes the roadmap's final demo script.
+**Phase 21 - Deployment Readiness (deferred by the owner, 2026-10-30):** AdaptLearn runs on localhost only for now. If it is deployed later, the remaining work is: production services (Neo4j Aura, Neon PostgreSQL, a Railway backend, a Vercel frontend, a Groq key), production environment variables (`APP_ENV=production` refuses the placeholder JWT secret; `postgres://` URLs from Neon are converted; `FRONTEND_URL` takes the Vercel origin for CORS), a rewrite of every path to `index.html` on Vercel so nested routes refresh, HTTPS, the curriculum seed (`python -m seed.seed_graph`), and the same demo script on the live site. Before real users: rate-limit login/register, move to Alembic migrations, and re-check the resource links (see Open items). This needs accounts on those services in the owner's name.
