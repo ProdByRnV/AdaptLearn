@@ -357,7 +357,7 @@ def submit_quiz(db: Session, user_id: int, quiz_id: UUID, domain: str = DOMAIN) 
     for index in range(len(questions)):
         response = responses.get(index)
         answers.append(response.answer if response is not None and response.answered_at is not None else None)
-    results = [answer is not None and answer == q["correct"] for answer, q in zip(answers, questions)]
+    results = [answer is not None and answer == q["correct"] for answer, q in zip(answers, questions, strict=True)]
     score = sum(results)
     passed = score >= PASS_SCORE
 
@@ -427,7 +427,7 @@ def submit_quiz(db: Session, user_id: int, quiz_id: UUID, domain: str = DOMAIN) 
                 "timed_out": bool(responses.get(index) and responses[index].timed_out),
                 "explanation": question["explanation"],
             }
-            for index, (question, answer, is_correct) in enumerate(zip(questions, answers, results))
+            for index, (question, answer, is_correct) in enumerate(zip(questions, answers, results, strict=True))
         ],
         "recommended_resources": topic.resources if (struggling and topic is not None) else [],
         "newly_unlocked": newly_unlocked,

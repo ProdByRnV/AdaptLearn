@@ -231,3 +231,39 @@ def test_token_contains_user_id_and_configured_expiry():
     claims = jwt.decode(token, options={"verify_signature": False})
     lifetime = claims["exp"] - claims["iat"]
     assert lifetime == get_settings().access_token_expire_minutes * 60
+
+
+# --- Edge cases (Phase 20) -------------------------------------------------------------
+
+def test_corrupted_stored_hash_fails_login_without_a_500(client, db):
+    register(client)
+    db.execute(text("UPDATE users SET hashed_password = 'not-a-bcrypt-hash' WHERE email = 'puja@example.com'"))
+    db.commit()
+    response = client.post("/api/auth/login", json={"email": "puja@example.com", "password": PASSWORD})
+    assert response.status_code == 401
+    assert response.json()["detail"] == INVALID_CREDENTIALS
+
+
+def test_token_whose_subject_is_not_a_user_id_rejected(client):
+    now = datetime.now(timezone.utc)
+    settings = get_settings()
+    token = jwt.encode(
+        {"sub": "admin", "iat": now, "exp": now + timedelta(minutes=5)},
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+    response = client.get("/api/auth/me", headers=bearer(token))
+    assert response.status_code == 401
+    assert response.json()["detail"] == INVALID_TOKEN
+
+
+def test_simultaneous_registrations_for_one_email_end_in_one_account(client, db, monkeypatch):
+    # Both requests pass the "email free?" check before either commits; the unique constraint
+    # decides, and the loser gets the normal 409 instead of a 500.
+    from services import auth_service
+
+    assert register(client).status_code == 201
+    monkeypatch.setattr(auth_service, "get_user_by_email", lambda *args: None)
+    response = register(client, username="Other")
+    assert response.status_code == 409
+    assert db.scalar(select(text("count(*)")).select_from(User)) == 1

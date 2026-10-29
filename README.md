@@ -316,14 +316,18 @@ The order of answers matters for the same score. Because `p_learn` is added afte
 With the venv activated, from `backend/`:
 
 ```bash
-pytest
+pytest                                   # the whole suite
+pytest --cov=. --cov-report=term-missing  # with line coverage (99% of statements)
+python -m ruff check .                   # lint: unused imports, undefined names, likely bugs (ruff.toml)
 ```
 
 Tests need the Docker PostgreSQL running. They use a separate database, `adaptlearn_test`, which is created automatically and rebuilt on every run, so your development data is never touched. Set `TEST_DATABASE_URL` to use a different test database.
 
 Neo4j Community has only one database, so the seeder tests write to their own throwaway domain (`pytest-seed`) and delete it afterwards; the real curriculum is never modified. They are skipped if Neo4j is not running.
 
-Frontend tests run with `npm test` from `frontend/`. They fake the HTTP layer, so they need neither the backend nor the databases; any request that would reach a real server fails the test.
+Frontend tests run with `npm test` from `frontend/` (lint with `npm run lint`). They fake the HTTP layer, so they need neither the backend nor the databases; any request that would reach a real server fails the test.
+
+**Accessibility.** Every screen was checked in Edge at 360 px, 768 px and 1280 px wide (no sideways scrolling), audited with axe-core against WCAG 2.2 AA and best practices (no violations), and used with the keyboard alone: every control is reachable with Tab and shows a visible focus indicator, and a learner can register, onboard, take a whole quiz, browse the graph and log out without a mouse. The graph canvas itself is visual; its List view gives the same information as text.
 
 ### Database tables
 

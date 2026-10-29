@@ -104,7 +104,7 @@ describe('creating the account', () => {
     await screen.findByRole('heading', { name: 'What do you already know?' })
     expect(router.state.location.pathname).toBe('/onboarding')
     expect(tokenStorage.get()).toBe('jwt-new')
-    expect(screen.getByRole('button', { name: 'Account menu' })).toHaveTextContent('New Learner')
+    expect(screen.getByRole('button', { name: /account menu/ })).toHaveTextContent('New Learner')
   })
 
   it('ignores extra clicks while the account is being created', async () => {

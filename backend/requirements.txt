@@ -25,3 +25,8 @@ httpx==0.28.1
 # Testing
 pytest==9.1.1
 httpx2==2.13.1
+pytest-cov==7.1.0
+coverage==7.16.2
+
+# Linting (python -m ruff check .)
+ruff==0.17.1

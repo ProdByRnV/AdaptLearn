@@ -236,6 +236,7 @@ describe('taking the quiz', () => {
     await startQuiz(user)
     expect(document.documentElement.requestFullscreen).toHaveBeenCalled()
     expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'HTML Basics' })).toBeInTheDocument()
     expect(screen.getByRole('timer', { name: 'Time left: 42 seconds' })).toHaveTextContent('0:42')
     expect(screen.getAllByRole('radio')).toHaveLength(4)
     expect(screen.getByRole('heading', { name: 'Question text 1?' })).toHaveFocus()

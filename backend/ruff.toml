@@ -1,0 +1,10 @@
+# Lint the backend: python -m ruff check .   (from backend/, inside the venv)
+target-version = "py313"
+line-length = 120
+extend-exclude = ["venv"]
+
+[lint]
+# Pyflakes (unused imports and variables, undefined names), syntax errors, and bugbear's likely bugs.
+select = ["F", "E9", "B"]
+# Routers turn service exceptions into HTTPException on purpose; chaining adds nothing to an API error.
+ignore = ["B904"]

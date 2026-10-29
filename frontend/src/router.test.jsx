@@ -81,7 +81,8 @@ describe('signed in', () => {
     renderAt(path)
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Account menu' })).toHaveTextContent('Puja Sharma')
+    // The visible name is part of the accessible name (WCAG 2.5.3), for voice control users.
+    expect(screen.getByRole('button', { name: 'Puja Sharma account menu' })).toBeInTheDocument()
   })
 
   it.each(['/', '/login', '/register'])('%s sends an onboarded learner to the dashboard', async (path) => {
@@ -148,7 +149,7 @@ describe('signed in', () => {
     signedIn()
     const user = userEvent.setup()
     const router = renderAt('/dashboard')
-    await user.click(await screen.findByRole('button', { name: 'Account menu' }))
+    await user.click(await screen.findByRole('button', { name: /account menu/ }))
     expect(await screen.findByText('puja@example.com')).toBeInTheDocument()
     await user.click(screen.getByRole('menuitem', { name: 'Log out' }))
     await screen.findByRole('heading', { name: 'Welcome back' })
@@ -162,7 +163,7 @@ describe('signed in', () => {
     loginRequest.mockResolvedValue({ access_token: 'jwt-2', token_type: 'bearer', user: LEARNER })
     const user = userEvent.setup()
     const router = renderAt('/graph')
-    await user.click(await screen.findByRole('button', { name: 'Account menu' }))
+    await user.click(await screen.findByRole('button', { name: /account menu/ }))
     await user.click(await screen.findByRole('menuitem', { name: 'Log out' }))
     await screen.findByRole('heading', { name: 'Welcome back' })
     expect(router.state.location.state?.from).toBeUndefined()
@@ -243,6 +244,7 @@ describe('unknown pages', () => {
   it('signed out: 404 with a link to login', async () => {
     renderAt('/does-not-exist')
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toContainElement(screen.getByRole('heading', { name: 'Page not found' }))
     expect(screen.getByRole('link', { name: 'Go to login' })).toHaveAttribute('href', '/login')
   })
 

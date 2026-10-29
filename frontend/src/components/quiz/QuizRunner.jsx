@@ -40,7 +40,7 @@ export function QuizRunner({ session }) {
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4">
           <LogoMark className="size-7 shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-ink">{quiz.topic.name}</p>
+            <h1 className="truncate text-sm font-semibold text-ink">{quiz.topic.name}</h1>
             <p className="text-xs text-muted-foreground">
               {submitting
                 ? 'Submitting'

@@ -4,8 +4,9 @@ Quizzes are taken through the real API with the LLM faked (conftest.fake_llm), s
 number on the dashboard comes from genuinely persisted state.
 """
 
+from itertools import pairwise
+
 import pytest
-from sqlalchemy import select
 
 from db import neo4j_db
 from seed.curriculum import TOPICS
@@ -140,7 +141,7 @@ def test_recent_attempts_newest_first_and_limited_to_five(client, make_user, db,
     assert (newest["score"], newest["total"], newest["passed"]) == (3, 3, True)
     assert newest["created_at"]
     # Same topic each time, so each attempt starts where the previous one ended.
-    for later, earlier in zip(recent, recent[1:]):
+    for later, earlier in pairwise(recent):
         assert later["mastery_before"] == earlier["mastery_after"]
 
 

@@ -55,10 +55,15 @@ export function Navbar() {
         <div className="ml-auto">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-9 gap-2 px-1.5" aria-label="Account menu">
-                <span className="flex size-7 items-center justify-center rounded-full bg-ink text-xs font-semibold text-accent-on-dark">
-                  {initials(user?.username)}
-                </span>
+              {/* Named "<username> account menu": the visible name is part of the accessible name (WCAG 2.5.3),
+                  so voice control users can say what they see. */}
+              <Button variant="ghost" className="h-9 gap-2 px-1.5" aria-label={`${user?.username ?? ''} account menu`}>
+                {/* Drawn as generated content, so the initials aren't part of the button's visible text. */}
+                <span
+                  aria-hidden="true"
+                  data-initials={initials(user?.username)}
+                  className="flex size-7 items-center justify-center rounded-full bg-ink text-xs font-semibold text-accent-on-dark before:content-[attr(data-initials)]"
+                />
                 <span className="hidden max-w-40 truncate text-sm font-medium text-ink md:inline">{user?.username}</span>
                 <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground" />
               </Button>

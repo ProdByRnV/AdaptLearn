@@ -8,7 +8,7 @@ export default function NotFound() {
   const { isAuthenticated } = useAuth()
 
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-3 px-4 text-center">
+    <main className="flex min-h-svh flex-col items-center justify-center gap-3 px-4 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-accent text-accent-foreground">
         <Compass aria-hidden="true" className="size-6" />
       </div>
@@ -18,6 +18,6 @@ export default function NotFound() {
       <Button asChild className="mt-2">
         <Link to={isAuthenticated ? '/dashboard' : '/login'}>{isAuthenticated ? 'Go to dashboard' : 'Go to login'}</Link>
       </Button>
-    </div>
+    </main>
   )
 }

@@ -14,6 +14,7 @@ A score of VERIFIED_THRESHOLD or more is "verified" and the attempt counts. Anyt
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from itertools import pairwise
 from datetime import datetime
 
 VERIFIED_THRESHOLD = 80
@@ -83,7 +84,7 @@ def heartbeat_gaps(heartbeats: Iterable[datetime], window_start: datetime, windo
         return 0
     inside = sorted(t for t in heartbeats if window_start <= t <= window_end)
     points = [window_start, *inside, window_end]
-    return sum(1 for a, b in zip(points, points[1:]) if (b - a).total_seconds() > MAX_HEARTBEAT_GAP_SECONDS)
+    return sum(1 for a, b in pairwise(points) if (b - a).total_seconds() > MAX_HEARTBEAT_GAP_SECONDS)
 
 
 def score_integrity(
