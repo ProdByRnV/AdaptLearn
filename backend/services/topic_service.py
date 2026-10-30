@@ -2,6 +2,9 @@
 
 All topic queries go through here so Cypher stays in one place and resources are parsed
 from their stored JSON string in exactly one function.
+
+Topics form one shared pool. A domain is a collection of topics, and a topic's prerequisites may
+belong to other domains, so reads are scoped by domain membership but prerequisites never are.
 """
 
 import json
@@ -15,21 +18,32 @@ from sqlalchemy.orm import Session
 from db import neo4j_db
 from models import TopicProgress, TopicStatus
 from services.bkt import DEFAULT_P_KNOW, mastery_reached
-from seed.curriculum import DOMAIN
+from seed.curriculum import DEFAULT_DOMAIN, DOMAIN_BY_ID
 
 logger = logging.getLogger("adaptlearn")
 
-# Only fully seeded domains are exposed (PRD US-03: no empty domains).
-SUPPORTED_DOMAINS: tuple[str, ...] = (DOMAIN,)
+# Only fully seeded domains are exposed (PRD US-03: no empty domains). Reads only ever see topics
+# that belong to one of these, so other seeded catalogs (the tests') stay invisible.
+SUPPORTED_DOMAINS: tuple[str, ...] = tuple(DOMAIN_BY_ID)
 
-TOPICS_WITH_PREREQUISITES = """
-MATCH (t:Topic {domain: $domain})
-OPTIONAL MATCH (pre:Topic {domain: $domain})-[:PREREQUISITE_OF]->(t)
-WITH t, collect(pre {.id, .name}) AS prereqs
+# Shared projection: a topic, its prerequisites (from any domain) and the supported domains using it.
+_TOPIC_FIELDS = """
+OPTIONAL MATCH (pre:Topic)-[:PREREQUISITE_OF]->(t)
+WITH t, collect(pre {.id, .name, .home_domain}) AS prereqs
 RETURN t.id AS id, t.name AS name, t.description AS description,
-       t.difficulty AS difficulty, t.resources AS resources, prereqs
+       t.difficulty AS difficulty, t.resources AS resources, t.home_domain AS home_domain,
+       [(t)-[:IN_DOMAIN]->(m:Domain) WHERE m.id IN $domains | m.id] AS domains, prereqs
 ORDER BY t.difficulty ASC, t.name ASC
 """
+
+DOMAIN_TOPICS = """
+MATCH (t:Topic)-[:IN_DOMAIN]->(:Domain {id: $domain})
+""" + _TOPIC_FIELDS
+
+TOPIC_BY_ID = """
+MATCH (t:Topic {id: $id})
+WHERE EXISTS { (t)-[:IN_DOMAIN]->(d:Domain) WHERE d.id IN $domains }
+""" + _TOPIC_FIELDS
 
 
 class UnknownDomainError(Exception):
@@ -45,11 +59,18 @@ class TopicInfo:
     resources: list[dict[str, str]] = field(default_factory=list)
     prerequisites: list[str] = field(default_factory=list)
     prerequisite_names: list[str] = field(default_factory=list)
+    home_domain: str = DEFAULT_DOMAIN
+    domains: list[str] = field(default_factory=list)  # every supported domain that uses this topic
+    prerequisite_domains: list[str] = field(default_factory=list)  # home domain of each prerequisite
 
 
 def ensure_domain(domain: str) -> None:
     if domain not in SUPPORTED_DOMAINS:
         raise UnknownDomainError(domain)
+
+
+def domain_name(domain: str) -> str:
+    return DOMAIN_BY_ID[domain].name if domain in DOMAIN_BY_ID else domain
 
 
 def parse_resources(raw: Any) -> list[dict[str, str]]:
@@ -67,25 +88,33 @@ def parse_resources(raw: Any) -> list[dict[str, str]]:
         return []
 
 
-def get_topics(domain: str = DOMAIN) -> list[TopicInfo]:
-    """All topics in a domain with their prerequisite ids, ordered by difficulty then name."""
+def topic_from_row(row: Any) -> TopicInfo:
+    prereqs = sorted(row["prereqs"], key=lambda p: p["id"])
+    return TopicInfo(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        difficulty=row["difficulty"],
+        resources=parse_resources(row["resources"]),
+        prerequisites=[p["id"] for p in prereqs],
+        prerequisite_names=[p["name"] for p in prereqs],
+        home_domain=row["home_domain"],
+        domains=sorted(row["domains"]),
+        prerequisite_domains=[p["home_domain"] for p in prereqs],
+    )
+
+
+def get_topics(domain: str = DEFAULT_DOMAIN) -> list[TopicInfo]:
+    """All topics in a domain with their prerequisite ids (from any domain), ordered by difficulty then name."""
     ensure_domain(domain)
-    rows = neo4j_db.read(TOPICS_WITH_PREREQUISITES, domain=domain)
-    topics = []
-    for row in rows:
-        prereqs = sorted(row["prereqs"], key=lambda p: p["id"])
-        topics.append(
-            TopicInfo(
-                id=row["id"],
-                name=row["name"],
-                description=row["description"],
-                difficulty=row["difficulty"],
-                resources=parse_resources(row["resources"]),
-                prerequisites=[p["id"] for p in prereqs],
-                prerequisite_names=[p["name"] for p in prereqs],
-            )
-        )
-    return topics
+    rows = neo4j_db.read(DOMAIN_TOPICS, domain=domain, domains=list(SUPPORTED_DOMAINS))
+    return [topic_from_row(row) for row in rows]
+
+
+def get_topic(topic_id: str) -> TopicInfo | None:
+    """One topic from the shared pool, whichever domains it belongs to."""
+    rows = neo4j_db.read(TOPIC_BY_ID, id=topic_id, domains=list(SUPPORTED_DOMAINS))
+    return topic_from_row(rows[0]) if rows else None
 
 
 def get_progress_map(db: Session, user_id: int) -> dict[str, TopicProgress]:
@@ -115,12 +144,26 @@ def to_percent(p_know: float) -> float:
     return round(p_know * 100, 1)
 
 
-def build_graph(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str, Any]:
+def build_graph(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> dict[str, Any]:
+    """The domain's topics and the links between them.
+
+    Prerequisites from other domains aren't drawn as links (their topics aren't nodes of this
+    graph); they are listed per node in external_prerequisites instead.
+    """
     topics = get_topics(domain)
+    in_domain = {t.id for t in topics}
     progress = get_progress_map(db, user_id)
     nodes, links = [], []
     for topic in topics:
         status, p_know = effective_state(topic, progress)
+        internal = [pre_id for pre_id in topic.prerequisites if pre_id in in_domain]
+        external = [
+            {"id": pre_id, "name": name, "domain": pre_domain, "domain_name": domain_name(pre_domain)}
+            for pre_id, name, pre_domain in zip(
+                topic.prerequisites, topic.prerequisite_names, topic.prerequisite_domains, strict=True
+            )
+            if pre_id not in in_domain
+        ]
         nodes.append(
             {
                 "id": topic.id,
@@ -130,9 +173,11 @@ def build_graph(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str, An
                 "status": status,
                 "mastery": to_percent(p_know),
                 "mastered": mastery_reached(p_know),
-                "prerequisites": topic.prerequisites,
+                "prerequisites": internal,
+                "external_prerequisites": external,
+                "domains": topic.domains,
                 "resources": topic.resources,
             }
         )
-        links.extend({"source": pre_id, "target": topic.id} for pre_id in topic.prerequisites)
+        links.extend({"source": pre_id, "target": topic.id} for pre_id in internal)
     return {"domain": domain, "nodes": nodes, "links": links}

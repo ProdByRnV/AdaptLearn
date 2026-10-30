@@ -41,11 +41,16 @@ Each question must contain:
 - correct: integer 0-3, the index of the correct option
 - explanation: concise string explaining why the correct option is right
 Do not use "All of the above" or "None of the above".
+Exactly one option may be correct. Every other option must be clearly wrong for the question as
+asked - never a different but equally valid way to get the same result. The correct option must
+satisfy every condition stated in the question.
 Questions should test understanding, not obscure trivia, and match the stated difficulty.
 Prefer applied questions - a short scenario or code snippet the learner must reason about - over
 definitions that could be looked up in seconds.
-Put a code snippet in a fenced block (```javascript ... ```) inside the question, with line breaks
-between its lines; use single backticks for short inline code.
+Put a code snippet in a fenced block inside the question, tagged with its real language (for example
+```python, ```bash, ```sql, ```html, ```javascript; ```text for program output or logs), with line
+breaks between its lines; use single backticks for short inline code. Only include a code block the
+learner needs to read to answer; never add an empty or placeholder block (such as "# your answer").
 Each option must be a complete answer on its own. Never write options that refer to choices listed
 in the question (such as "A" or "option B"): the app labels the options itself."""
 

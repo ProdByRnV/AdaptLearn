@@ -29,6 +29,21 @@ def _unescape_code(text: str) -> str:
     return text
 
 
+_FENCED_BLOCK = re.compile(r"\n?```[\w+-]*[^\S\n]*\n?(.*?)\n?```", re.DOTALL)
+_COMMENT_LINE = re.compile(r"^\s*(#|//|--|/\*|\*|<!--)")
+
+
+def _drop_placeholder_blocks(text: str) -> str:
+    """Models sometimes append an empty block or one holding only a comment such as "# your answer".
+    A block with nothing but blank and comment lines shows the learner nothing to reason about."""
+
+    def keep_or_drop(match: re.Match) -> str:
+        lines = [line for line in match.group(1).splitlines() if line.strip()]
+        return "" if all(_COMMENT_LINE.match(line) for line in lines) else match.group(0)
+
+    return _FENCED_BLOCK.sub(keep_or_drop, text).strip()
+
+
 # --- Internal: quiz content with answers (LLM output, fallback bank, quiz_sessions) ---
 
 class QuizQuestion(BaseModel):
@@ -42,8 +57,11 @@ class QuizQuestion(BaseModel):
 
     @field_validator("question", "explanation")
     @classmethod
-    def repair_code_line_breaks(cls, text: str) -> str:
-        return _unescape_code(text)
+    def repair_code_blocks(cls, text: str) -> str:
+        repaired = _drop_placeholder_blocks(_unescape_code(text))
+        if not repaired:
+            raise ValueError("must contain text, not only an empty code block")
+        return repaired
 
     @field_validator("options")
     @classmethod

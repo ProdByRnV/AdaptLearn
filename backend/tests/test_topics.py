@@ -10,10 +10,14 @@ import pytest
 from neo4j.exceptions import ServiceUnavailable
 
 from models import TopicProgress
-from seed.curriculum import PREREQUISITES, TOPICS
+from seed.curriculum import TOPICS as POOL
+from seed.domains.web_development import WEB_DEVELOPMENT
 from services import topic_service
 from services.topic_service import parse_resources
 
+# The API's default domain.
+TOPICS = tuple(t for t in POOL if t.id in WEB_DEVELOPMENT.topic_ids)
+PREREQUISITES = WEB_DEVELOPMENT.prerequisites
 ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
 SPEC_NODE_FIELDS = {"id", "name", "description", "difficulty", "status", "mastery", "resources"}
 
@@ -91,8 +95,10 @@ def test_graph_has_30_nodes_and_37_links_in_spec_shape(client, make_user):
     assert len(body["nodes"]) == 30
     assert len(body["links"]) == 37
     for node in body["nodes"]:
-        # Spec fields (ARCHITECTURE 13.7) plus mastered + prerequisites for the UI.
-        assert set(node) == SPEC_NODE_FIELDS | {"mastered", "prerequisites"}
+        # Spec fields (ARCHITECTURE 13.7) plus mastered + prerequisites for the UI, and the
+        # domains it belongs to + prerequisites from other domains (Phase 22).
+        assert set(node) == SPEC_NODE_FIELDS | {"mastered", "prerequisites", "domains", "external_prerequisites"}
+        assert node["external_prerequisites"] == []  # Web Development has none yet
     for link in body["links"]:
         assert set(link) == {"source", "target"}
 

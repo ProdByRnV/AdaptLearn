@@ -13,6 +13,41 @@ def _q(question: str, answer: str, wrong: tuple[str, str, str], explanation: str
 
 
 FALLBACK_QUESTIONS: dict[str, list[dict[str, Any]]] = {
+    # --- Foundations ---------------------------------------------------------------------
+    "command_line_basics": [
+        _q("Which command prints the folder you are currently in on Linux or macOS?", "pwd",
+           ("cd", "ls", "whereami"),
+           "pwd (print working directory) shows the current folder; cd changes folder and ls lists what is in it."),
+        _q("What does cd .. do?", "Moves up to the parent folder",
+           ("Lists hidden files", "Deletes the current folder", "Returns to your home folder"),
+           ".. means the parent directory, so cd .. goes one level up. cd on its own (or cd ~) goes to the home "
+           "folder."),
+        _q("What does the -r option add to rm -r old_project?", "It removes the folder and everything inside it",
+           ("It asks for confirmation before each file", "It moves the folder to the recycle bin",
+            "It renames the folder"),
+           "-r (recursive) lets rm delete a directory with all of its contents. Deleted files don't go to a "
+           "recycle bin, which is why -i (confirm each file) exists."),
+    ],
+    "how_the_internet_works": [
+        _q("What does DNS do?", "Translates domain names such as example.com into IP addresses",
+           ("Encrypts traffic between the browser and the server", "Stores copies of websites",
+            "Assigns IP addresses to devices on a home network"),
+           "The Domain Name System looks up the IP address behind a name so requests can be sent to it. "
+           "Encryption is TLS's job and home-network addresses come from DHCP."),
+        _q("How is data sent across the internet?",
+           "Split into small packets that may take different routes and are reassembled at the destination",
+           ("As one continuous stream over a single dedicated wire", "Only through satellites",
+            "As complete files that every router stores permanently"),
+           "The internet is packet-switched: data is broken into packets, routers forward each one towards its "
+           "destination, and the receiver puts them back in order."),
+        _q("When you open a web page, what does your browser send to the web server?",
+           "An HTTP request asking for the page, such as GET /index.html",
+           ("The page's HTML for the server to check", "A DNS record for the site",
+            "Its whole browsing history"),
+           "After DNS finds the server's address, the browser sends an HTTP request; the server answers with an "
+           "HTTP response containing the page."),
+    ],
+    # --- Web Development -----------------------------------------------------------------
     "html_basics": [
         _q("Which element creates a hyperlink to another page?", "<a>", ("<link>", "<href>", "<url>"),
            "The anchor element <a> with an href attribute creates a hyperlink. <link> connects external "

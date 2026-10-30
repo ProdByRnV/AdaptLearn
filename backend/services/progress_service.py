@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from models import QuizAttempt, QuizIntegrity, TopicProgress, TopicStatus
-from seed.curriculum import DOMAIN
+from seed.curriculum import DEFAULT_DOMAIN
 from services.bkt import mastery_reached
 from services.learning_path import get_learning_path
 from services.topic_service import effective_state, get_progress_map, get_topics, to_percent
@@ -23,7 +23,7 @@ def _percent_of(part: int, whole: int) -> float:
     return round(part / whole * 100, 1) if whole else 0.0
 
 
-def build_dashboard(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str, Any]:
+def build_dashboard(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> dict[str, Any]:
     topics = get_topics(domain)  # Neo4j query 1 (also validates the domain)
     path = get_learning_path(db, user_id, domain)  # Neo4j query 2; syncs unlocked statuses first
     topic_by_id = {t.id: t for t in topics}

@@ -13,7 +13,7 @@ from schemas.topics import (
     TopicOut,
     TopicsResponse,
 )
-from seed.curriculum import DOMAIN
+from seed.curriculum import DEFAULT_DOMAIN
 from services import learning_path, topic_service
 from services.auth_service import CurrentUser
 from services.learning_path import UnknownTopicsError
@@ -38,7 +38,7 @@ def _unknown_domain(domain: str) -> HTTPException:
 
 
 @router.get("/all", response_model=TopicsResponse)
-def all_topics(current_user: CurrentUser, domain: DomainParam = DOMAIN) -> TopicsResponse:
+def all_topics(current_user: CurrentUser, domain: DomainParam = DEFAULT_DOMAIN) -> TopicsResponse:
     try:
         topics = topic_service.get_topics(domain)
     except UnknownDomainError:
@@ -53,7 +53,7 @@ def all_topics(current_user: CurrentUser, domain: DomainParam = DOMAIN) -> Topic
 
 
 @router.get("/graph", response_model=GraphResponse)
-def topic_graph(current_user: CurrentUser, db: DbSession, domain: DomainParam = DOMAIN) -> GraphResponse:
+def topic_graph(current_user: CurrentUser, db: DbSession, domain: DomainParam = DEFAULT_DOMAIN) -> GraphResponse:
     try:
         graph = topic_service.build_graph(db, current_user.id, domain)
     except UnknownDomainError:
@@ -62,7 +62,7 @@ def topic_graph(current_user: CurrentUser, db: DbSession, domain: DomainParam = 
 
 
 @router.get("/learning-path", response_model=LearningPathResponse)
-def get_learning_path(current_user: CurrentUser, db: DbSession, domain: DomainParam = DOMAIN) -> LearningPathResponse:
+def get_learning_path(current_user: CurrentUser, db: DbSession, domain: DomainParam = DEFAULT_DOMAIN) -> LearningPathResponse:
     try:
         result = learning_path.get_learning_path(db, current_user.id, domain)
     except UnknownDomainError:

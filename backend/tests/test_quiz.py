@@ -162,6 +162,41 @@ def test_meaningful_backslash_n_is_kept(question):
     assert parsed.question == question
 
 
+@pytest.mark.parametrize(
+    "placeholder",
+    [
+        "```javascript\n# your answer\n```",  # seen live: a comment-only block after a shell question
+        "```bash\n# your commands here\n```",
+        "```python\n\n```",
+        "```\n// TODO\n```",
+        "```sql\n-- write your query\n```",
+    ],
+)
+def test_placeholder_code_blocks_are_removed(placeholder):
+    question = f"Which command lists hidden files?{placeholder}"
+    parsed = parse_quiz(quiz_json(make_question(0, question=question), make_question(1), make_question(2)))[0]
+    assert parsed.question == "Which command lists hidden files?"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What is printed?\n```python\nprint(2 ** 3)\n```",
+        "What does this do?\n```bash\n# list everything\nls -a\n```",  # comments alongside real code
+        "Which layer handles line 4?\n```text\n1. SYN\n4. GET /index.html HTTP/1.1\n```",
+    ],
+)
+def test_code_blocks_with_content_are_kept(question):
+    parsed = parse_quiz(quiz_json(make_question(0, question=question), make_question(1), make_question(2)))[0]
+    assert parsed.question == question
+
+
+def test_a_question_that_is_only_a_placeholder_block_is_rejected():
+    q = make_question(0, question="```bash\n# your answer\n```")
+    with pytest.raises(InvalidQuizOutput, match="only an empty code block"):
+        parse_quiz(quiz_json(q, make_question(1), make_question(2)))
+
+
 # --- generate_questions: retries and fallback ---------------------------------------------
 
 def test_valid_first_answer_uses_ai(fake_llm):
@@ -395,9 +430,15 @@ def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm
     user_id, headers = make_user()
     assert generate(client, headers).status_code == 200
     db.expire_all()
-    assert len(db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id)).all()) == 30
+    # The quizzed topic gets a row, and so does every topic open to a new learner (in every domain);
+    # the rest stay derived from the graph until they become reachable.
+    rows = db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id)).all()
+    assert {r.topic_id for r in rows} == {
+        ROOT, "html_basics", "javascript_fundamentals", "sql_basics", "command_line_basics", "how_the_internet_works",
+    }
     assert progress_row(db, user_id, ROOT).status == "in_progress"
-    assert progress_row(db, user_id, "react_fundamentals").status == "locked"
+    nodes = {n["id"]: n for n in client.get("/api/topics/graph", headers=headers).json()["nodes"]}
+    assert nodes["react_fundamentals"]["status"] == "locked"
 
 
 @pytestmark_api

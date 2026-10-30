@@ -8,7 +8,7 @@ An adaptive learning platform that builds a personalised learning path instead o
 - **PostgreSQL** - users, progress, quiz sessions and attempt history.
 - **React** - sign-in, onboarding, a dashboard, proctored quizzes and an interactive knowledge graph.
 
-The first fully seeded domain is **Web Development** (30 topics).
+The curriculum is organised into **domains** that share one pool of topics: **Web Development** (30 topics) and a starter **Foundations** domain (3 topics, one of them shared with Web Development). More domains are planned (see [PROJECT-STATE.md](PROJECT-STATE.md)).
 
 AdaptLearn is complete for local use and runs on localhost (Docker for the databases, see **Local development**); it is not deployed. See [PROJECT-STATE.md](PROJECT-STATE.md) for current progress. The specification documents (PRD, architecture and roadmap) are kept privately and are not part of this repository.
 
@@ -158,20 +158,20 @@ Rules:
 
 ### Topics
 
-Both endpoints need a Bearer token and take an optional `?domain=` (default and only supported value: `web-development`; anything else is `404`).
+Both endpoints need a Bearer token and take an optional `?domain=` (`web-development`, the default, or `foundations`; anything else is `404`). A domain includes the topics it shares from other domains.
 
 | Endpoint | Returns |
 |---|---|
 | `GET /api/topics/all` | `{domain, topics}`: every topic with `id`, `name`, `description`, `difficulty` and `resources` (`[{title, url, type}]`), ordered by difficulty then name |
-| `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`) and `prerequisites` (ids). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks |
+| `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`), `prerequisites` (ids of prerequisites in this domain), `external_prerequisites` (`[{id, name, domain, domain_name}]` for prerequisites from other domains) and `domains` (every domain the topic belongs to). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks, between topics of this domain |
 
 #### Learning path: `GET /api/topics/learning-path`
 
-Returns `{domain, onboarded, curriculum_complete, recommended}`. `recommended` holds at most 3 learnable topics: not completed, every prerequisite completed, ordered by difficulty then name. Topics already in progress are included with status `in_progress`.
+Returns `{domain, onboarded, curriculum_complete, recommended}`. `recommended` holds at most 3 learnable topics from the domain: not completed, every prerequisite completed (including prerequisites from other domains), ordered by difficulty then name. Topics already in progress are included with status `in_progress`.
 
 - **Before onboarding** (no progress rows): `onboarded` is `false`, the starting topics are returned, and nothing is written. The frontend uses this to send the learner to onboarding.
 - **After onboarding:** statuses are synced first, so any topic that has become learnable is stored as `unlocked`. A missing row for a learnable topic is recreated, and completed or in-progress topics are never changed.
-- **Everything completed:** `curriculum_complete` is `true` and `recommended` is empty.
+- **Everything completed:** `curriculum_complete` is `true` (every topic in the domain is completed) and `recommended` is empty. An empty `recommended` alone isn't enough: a topic can still be waiting on a prerequisite from another domain.
 
 The same user state always gives the same answer.
 
@@ -189,7 +189,7 @@ Response: `{message, known_count, added_prerequisites, recommended}`, where `rec
 
 Calling it again only adds knowledge: completed topics are never relocked, mastery is never lowered, and topics already in progress keep that status.
 
-A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. The whole curriculum is read in one Neo4j query, so there are no per-topic lookups.
+A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. A domain's topics are read in one Neo4j query, so there are no per-topic lookups.
 
 ### Quizzes (proctored)
 
@@ -240,7 +240,7 @@ Each submitted quiz starts at **100** and loses points per signal ([`services/pr
 
 [`services/llm_quiz.py`](backend/services/llm_quiz.py):
 
-1. **Groq** is asked for exactly 3 multiple-choice questions in JSON mode, with the topic's name, description, difficulty and domain in the prompt, preferring applied scenario or code questions over definitions that can be looked up quickly.
+1. **Groq** is asked for exactly 3 multiple-choice questions in JSON mode, with the topic's name, description, difficulty and home domain in the prompt, preferring applied scenario or code questions over definitions that can be looked up quickly.
 2. The output is validated: valid JSON (accidental code fences stripped), exactly 3 distinct questions, exactly 4 distinct non-empty options each, `correct` a real integer 0-3, and a non-empty explanation.
 3. **Invalid output is retried** up to 2 more times. That includes Groq's own `400 json_validate_failed`.
 4. **Groq unavailable** (no API key, network error, timeout, auth error, rate limit or 5xx) skips straight to the **fallback bank** ([`seed/fallback_questions.py`](backend/seed/fallback_questions.py): 3 hand-written questions per topic). Each request times out after 10s, and retries stop after 12s in total.
@@ -323,7 +323,7 @@ python -m ruff check .                   # lint: unused imports, undefined names
 
 Tests need the Docker PostgreSQL running. They use a separate database, `adaptlearn_test`, which is created automatically and rebuilt on every run, so your development data is never touched. Set `TEST_DATABASE_URL` to use a different test database.
 
-Neo4j Community has only one database, so the seeder tests write to their own throwaway domain (`pytest-seed`) and delete it afterwards; the real curriculum is never modified. They are skipped if Neo4j is not running.
+Neo4j Community has only one database, so the seeder tests and the multi-domain tests seed their own throwaway catalogs (`pytest-seed`, `pytest-domains`) and delete them afterwards; the real curriculum is never modified. They are skipped if Neo4j is not running.
 
 Frontend tests run with `npm test` from `frontend/` (lint with `npm run lint`). They fake the HTTP layer, so they need neither the backend nor the databases; any request that would reach a real server fails the test.
 
@@ -355,15 +355,21 @@ If PostgreSQL is down when the backend starts, tables are not created - restart 
 
 ### Curriculum graph (Neo4j)
 
-The Web Development curriculum lives in [`backend/seed/curriculum.py`](backend/seed/curriculum.py): 30 topics (name, description, difficulty 1-4, 1-3 curated resources each) and 37 prerequisite edges. It is the single source of truth for the graph.
+Each domain has its own file in [`backend/seed/domains/`](backend/seed/domains/), and [`backend/seed/curriculum.py`](backend/seed/curriculum.py) lists them; together they are the single source of truth for the graph.
 
-On every backend startup it is validated (no duplicate ids, no edges to unknown topics, no prerequisite cycles, valid difficulty and resources) and written to Neo4j:
+- **Topics are shared.** A topic (name, description, difficulty 1-4, 1-3 curated resources) is defined once, in its home domain's file; other domains include it by id (`shared=`). Git Basics, for example, lives in Foundations and is shared with Web Development.
+- **Prerequisites may cross domains.** An edge is written in the file of the topic it leads to; the prerequisite can come from any domain.
+- **Progress belongs to the topic.** Mastering a topic counts in every domain that uses it, and a topic unlocks when all its prerequisites are completed, wherever they live.
 
-- topics and edges are `MERGE`d, so repeated startups never create duplicates;
+Web Development: 30 topics (29 of its own plus Git Basics) and 37 prerequisite edges, as specified. Foundations: Command Line Basics, How the Internet Works and Git Basics.
+
+On every backend startup the curriculum is validated (unique domain and topic ids in the right format, each topic defined once, shared topics that exist, edges filed with their topic, no edges to unknown topics, no prerequisite cycles across all domains, valid difficulty and resources) and written to Neo4j as `(:Domain)`, `(:Topic)-[:IN_DOMAIN]->(:Domain)` and `(:Topic)-[:PREREQUISITE_OF]->(:Topic)`:
+
+- everything is `MERGE`d, so repeated startups never create duplicates;
 - changed descriptions/resources are updated in place;
-- topics or edges removed from the file are removed from the graph (only within that domain);
+- domains, topics, memberships or edges removed from the files are removed from the graph (only within the curriculum's own catalog, so other seeds are never touched);
 - everything happens in one transaction, so a failed seed never leaves a half-written graph;
-- a unique constraint on `Topic.id` and an index on `Topic.domain` are created if missing.
+- unique constraints on `Topic.id` and `Domain.id` are created if missing.
 
 To seed by hand (for example against Neo4j Aura), from `backend/` with the venv active:
 
@@ -374,7 +380,7 @@ python -m seed.seed_graph
 To see the graph, open the Neo4j Browser at http://localhost:7474 (login `neo4j` / `password123`) and run:
 
 ```cypher
-MATCH (t:Topic {domain: 'web-development'})
+MATCH (t:Topic)-[:IN_DOMAIN]->(:Domain {id: 'web-development'})
 OPTIONAL MATCH (t)-[r:PREREQUISITE_OF]->(next:Topic)
 RETURN t, r, next
 ```
@@ -420,7 +426,7 @@ adaptlearn/
 │   ├── models/          # SQLAlchemy models (users, topic_progress, quiz_attempts, quiz_sessions)
 │   ├── schemas/         # Pydantic request/response schemas
 │   ├── routers/         # API routes
-│   ├── seed/            # Curriculum data + idempotent Neo4j seeder
+│   ├── seed/            # Curriculum (one file per domain in domains/) + idempotent Neo4j seeder
 │   ├── services/        # Business logic (auth, BKT, quiz, learning path)
 │   └── tests/           # pytest suite (runs against adaptlearn_test)
 └── frontend/            # React application

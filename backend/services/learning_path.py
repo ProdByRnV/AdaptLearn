@@ -2,6 +2,9 @@
 
 Graph questions (which topics are learnable, which topics a topic depends on) are answered
 by Neo4j; per-user state lives in PostgreSQL topic_progress rows.
+
+Topic status belongs to the topic, not to a domain: the frontier is computed over the whole
+shared pool (a prerequisite in another domain counts), and each domain view filters it.
 """
 
 import logging
@@ -14,28 +17,31 @@ from sqlalchemy.orm import Session
 from db import neo4j_db
 from models import TopicProgress, TopicStatus
 from services.bkt import DEFAULT_P_KNOW, MASTERY_THRESHOLD
-from services.topic_service import TopicInfo, ensure_domain, get_progress_map, get_topics, parse_resources, to_percent
+from services import topic_service
+from services.topic_service import TopicInfo, ensure_domain, get_progress_map, get_topics, to_percent, topic_from_row
 
 logger = logging.getLogger("adaptlearn")
 
 RECOMMENDATION_LIMIT = 3
 
-# ARCHITECTURE.md 9.3 without LIMIT: the full frontier is needed to unlock every eligible
-# topic (decision 1). Recommendations take the first three of this ordered list.
+# ARCHITECTURE.md 9.3 without LIMIT, over every supported domain: the full frontier is needed to
+# unlock every eligible topic (decision 1). Recommendations take the first three of a domain's slice.
 FRONTIER = """
-MATCH (t:Topic {domain: $domain})
-WHERE NOT t.id IN $completed_ids
-OPTIONAL MATCH (pre:Topic {domain: $domain})-[:PREREQUISITE_OF]->(t)
-WITH t, collect(pre {.id, .name}) AS prereqs
+MATCH (t:Topic)-[:IN_DOMAIN]->(d:Domain)
+WHERE d.id IN $domains AND NOT t.id IN $completed_ids
+WITH DISTINCT t
+OPTIONAL MATCH (pre:Topic)-[:PREREQUISITE_OF]->(t)
+WITH t, collect(pre {.id, .name, .home_domain}) AS prereqs
 WHERE ALL(p IN prereqs WHERE p.id IN $completed_ids)
 RETURN t.id AS id, t.name AS name, t.description AS description,
-       t.difficulty AS difficulty, t.resources AS resources, prereqs
+       t.difficulty AS difficulty, t.resources AS resources, t.home_domain AS home_domain,
+       [(t)-[:IN_DOMAIN]->(m:Domain) WHERE m.id IN $domains | m.id] AS domains, prereqs
 ORDER BY t.difficulty ASC, t.name ASC
 """
 
-# Every topic that must come before any of $ids, however many steps back.
+# Every topic that must come before any of $ids, however many steps back, in any domain.
 ANCESTORS = """
-MATCH (pre:Topic {domain: $domain})-[:PREREQUISITE_OF*1..]->(t:Topic {domain: $domain})
+MATCH (pre:Topic)-[:PREREQUISITE_OF*1..]->(t:Topic)
 WHERE t.id IN $ids
 RETURN DISTINCT pre.id AS id
 """
@@ -49,31 +55,22 @@ class UnknownTopicsError(Exception):
         self.topic_ids = topic_ids
 
 
-def get_frontier(domain: str, completed_ids: Iterable[str]) -> list[TopicInfo]:
-    """Topics that are not completed and whose prerequisites are all completed, easiest first."""
-    rows = neo4j_db.read(FRONTIER, domain=domain, completed_ids=sorted(set(completed_ids)))
-    topics = []
-    for row in rows:
-        prereqs = sorted(row["prereqs"], key=lambda p: p["id"])
-        topics.append(
-            TopicInfo(
-                id=row["id"],
-                name=row["name"],
-                description=row["description"],
-                difficulty=row["difficulty"],
-                resources=parse_resources(row["resources"]),
-                prerequisites=[p["id"] for p in prereqs],
-                prerequisite_names=[p["name"] for p in prereqs],
-            )
-        )
-    return topics
+def get_frontier(completed_ids: Iterable[str]) -> list[TopicInfo]:
+    """Topics in any domain that are not completed and whose prerequisites are all completed, easiest first."""
+    rows = neo4j_db.read(FRONTIER, domains=list(topic_service.SUPPORTED_DOMAINS), completed_ids=sorted(set(completed_ids)))
+    return [topic_from_row(row) for row in rows]
 
 
-def get_ancestors(domain: str, topic_ids: Iterable[str]) -> set[str]:
+def in_domain(frontier: list[TopicInfo], domain: str) -> list[TopicInfo]:
+    """The part of the frontier that belongs to one domain, in the same order."""
+    return [t for t in frontier if domain in t.domains]
+
+
+def get_ancestors(topic_ids: Iterable[str]) -> set[str]:
     ids = sorted(set(topic_ids))
     if not ids:
         return set()
-    return {row["id"] for row in neo4j_db.read(ANCESTORS, domain=domain, ids=ids)}
+    return {row["id"] for row in neo4j_db.read(ANCESTORS, ids=ids)}
 
 
 def ensure_progress_rows(db: Session, user_id: int, topic_ids: Iterable[str]) -> None:
@@ -85,16 +82,17 @@ def ensure_progress_rows(db: Session, user_id: int, topic_ids: Iterable[str]) ->
         )
 
 
-def sync_statuses(db: Session, user_id: int, domain: str) -> list[TopicInfo]:
+def sync_statuses(db: Session, user_id: int) -> list[TopicInfo]:
     """Unlock every topic on the user's frontier and lock the rest of the not-yet-started topics.
 
-    Completed and in-progress rows are never changed here, so a completed topic is never relocked.
-    Frontier topics without a row (e.g. a topic added to the curriculum after onboarding) get one.
-    Returns the frontier. Does not commit.
+    Works across all domains at once: a topic's status doesn't depend on which domain is being
+    viewed. Completed and in-progress rows are never changed here, so a completed topic is never
+    relocked. Frontier topics without a row (e.g. a topic added to the curriculum after onboarding)
+    get one. Returns the whole frontier. Does not commit.
     """
     progress = get_progress_map(db, user_id)
     completed = [tid for tid, row in progress.items() if row.status == TopicStatus.COMPLETED]
-    frontier = get_frontier(domain, completed)
+    frontier = get_frontier(completed)
     frontier_ids = {t.id for t in frontier}
     missing = frontier_ids - progress.keys()
     if missing:
@@ -139,7 +137,7 @@ def get_learning_path(db: Session, user_id: int, domain: str) -> dict[str, Any]:
     ensure_domain(domain)
     progress = get_progress_map(db, user_id)
     if not progress:
-        frontier = get_frontier(domain, [])
+        frontier = in_domain(get_frontier([]), domain)
         return {
             "domain": domain,
             "onboarded": False,
@@ -147,16 +145,29 @@ def get_learning_path(db: Session, user_id: int, domain: str) -> dict[str, Any]:
             "recommended": recommendations(frontier, {}),
         }
 
-    frontier = sync_statuses(db, user_id, domain)
+    frontier = in_domain(sync_statuses(db, user_id), domain)
     db.commit()
     progress = get_progress_map(db, user_id)
     return {
         "domain": domain,
         "onboarded": True,
-        # In an acyclic prerequisite graph the frontier is only empty once every topic is completed.
-        "curriculum_complete": not frontier,
+        "curriculum_complete": domain_complete(frontier, domain, progress),
         "recommended": recommendations(frontier, progress),
     }
+
+
+def domain_complete(domain_frontier: list[TopicInfo], domain: str, progress: dict[str, TopicProgress]) -> bool:
+    """True when every topic in the domain is completed.
+
+    Within one domain an empty frontier isn't enough: a topic can still be locked behind a
+    prerequisite from another domain. Only then are the domain's topics read to check.
+    """
+    if domain_frontier:
+        return False
+    return all(
+        (row := progress.get(t.id)) is not None and row.status == TopicStatus.COMPLETED
+        for t in get_topics(domain)
+    )
 
 
 def mark_known(db: Session, user_id: int, domain: str, topic_ids: list[str]) -> dict[str, Any]:
@@ -173,10 +184,11 @@ def mark_known(db: Session, user_id: int, domain: str, topic_ids: list[str]) -> 
     if unknown:
         raise UnknownTopicsError(unknown)
 
-    added_prerequisites = get_ancestors(domain, selected) - selected
+    # Prerequisites may come from other domains; they become known too (decision 3).
+    added_prerequisites = get_ancestors(selected) - selected
     known = selected | added_prerequisites
 
-    ensure_progress_rows(db, user_id, all_ids)
+    ensure_progress_rows(db, user_id, all_ids | known)
     progress = get_progress_map(db, user_id)
     for topic_id in known:
         row = progress[topic_id]
@@ -184,7 +196,7 @@ def mark_known(db: Session, user_id: int, domain: str, topic_ids: list[str]) -> 
         row.p_know = max(row.p_know, KNOWN_TOPIC_P_KNOW)
         row.needs_attention = False
 
-    frontier = sync_statuses(db, user_id, domain)
+    frontier = in_domain(sync_statuses(db, user_id), domain)
     db.commit()
     logger.info("Onboarding saved for user id=%s: %d known topics", user_id, len(known))
 

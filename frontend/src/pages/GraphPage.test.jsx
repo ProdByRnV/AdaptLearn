@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useImperativeHandle } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchCurrentUser } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
@@ -40,6 +40,10 @@ vi.mock('react-force-graph-2d', () => ({
     )
   },
 }))
+
+// The page lazy-loads the graph component. Load it once up front so the first test doesn't pay for a
+// cold import (slow when the whole suite runs in parallel) inside its one-second wait.
+beforeAll(() => import('@/components/graph/KnowledgeGraph'))
 
 beforeEach(() => {
   graph.props = null

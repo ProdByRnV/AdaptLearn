@@ -4,11 +4,11 @@ import pytest
 from sqlalchemy import delete, select
 
 from models import TopicProgress
-from seed.curriculum import TOPICS
+from seed.domains.web_development import WEB_DEVELOPMENT
 
 pytestmark = pytest.mark.usefixtures("curriculum")
 
-ALL_IDS = {t.id for t in TOPICS}
+ALL_IDS = set(WEB_DEVELOPMENT.topic_ids)  # the default domain
 # Everything that (directly or indirectly) depends on SQL Basics.
 SQL_DEPENDENTS = {"sql_basics", "postgresql_basics", "testing_basics", "deployment_basics"}
 

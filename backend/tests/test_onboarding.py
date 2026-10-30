@@ -8,13 +8,17 @@ import pytest
 from sqlalchemy import select
 
 from models import TopicProgress
-from seed.curriculum import DOMAIN, PREREQUISITES, TOPICS
+from seed.curriculum import PREREQUISITES, TOPICS
+from seed.domains.web_development import WEB_DEVELOPMENT
 from services.learning_path import get_ancestors, get_frontier
 
 pytestmark = pytest.mark.usefixtures("curriculum")
 
-ALL_IDS = {t.id for t in TOPICS}
+POOL_IDS = {t.id for t in TOPICS}  # every domain
+ALL_IDS = set(WEB_DEVELOPMENT.topic_ids)  # the default domain, which onboarding uses
 ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
+# Starting topics in other domains: unlocked for everyone, since a topic's status isn't tied to a domain.
+OTHER_ROOTS = {"command_line_basics", "how_the_internet_works"}
 NAMES = {t.id: t.name for t in TOPICS}
 
 
@@ -64,7 +68,7 @@ def ids_with_status(rows, status) -> set[str]:
     [set(), {"html_basics"}, {"react_fundamentals"}, {"deployment_basics"}, {"postgresql_basics", "es_modules"}],
 )
 def test_ancestor_query_matches_reference(selected):
-    assert get_ancestors(DOMAIN, selected) == expected_ancestors(selected)
+    assert get_ancestors(selected) == expected_ancestors(selected)
 
 
 @pytest.mark.parametrize(
@@ -76,10 +80,12 @@ def test_ancestor_query_matches_reference(selected):
         {"git_basics", "javascript_fundamentals", "nodejs_basics"},
         ALL_IDS - {"deployment_basics"},
         ALL_IDS,
+        POOL_IDS - {"how_the_internet_works"},
+        POOL_IDS,
     ],
 )
 def test_frontier_query_matches_reference(completed):
-    assert [t.id for t in get_frontier(DOMAIN, completed)] == expected_frontier(completed)
+    assert [t.id for t in get_frontier(completed)] == expected_frontier(completed)
 
 
 # --- POST /api/topics/mark-known --------------------------------------------------
@@ -100,8 +106,8 @@ def test_no_known_topics(client, make_user, db):
     assert [t["id"] for t in body["recommended"]] == ["git_basics", "html_basics", "javascript_fundamentals"]
 
     rows = rows_for(db, user_id)
-    assert set(rows) == ALL_IDS
-    assert ids_with_status(rows, "unlocked") == ROOTS
+    assert set(rows) == ALL_IDS | OTHER_ROOTS
+    assert ids_with_status(rows, "unlocked") == ROOTS | OTHER_ROOTS
     assert ids_with_status(rows, "locked") == ALL_IDS - ROOTS
     assert {r.p_know for r in rows.values()} == {0.10}
 
@@ -136,8 +142,9 @@ def test_some_known_topics(client, make_user, db):
     assert ids_with_status(rows, "completed") == completed
     assert all(rows[t].p_know == 0.95 for t in completed)
     assert ids_with_status(rows, "unlocked") == set(expected_frontier(completed))
+    assert OTHER_ROOTS <= ids_with_status(rows, "unlocked")
     assert "react_fundamentals" in ids_with_status(rows, "locked")  # still needs JavaScript
-    assert [t["id"] for t in body["recommended"]] == expected_frontier(completed)[:3]
+    assert [t["id"] for t in body["recommended"]] == [t for t in expected_frontier(completed) if t in ALL_IDS][:3]
 
 
 def test_known_topic_implies_its_prerequisites(client, make_user, db):
@@ -170,7 +177,8 @@ def test_all_topics_known(client, make_user, db):
     assert body["recommended"] == []
     rows = rows_for(db, user_id)
     assert ids_with_status(rows, "completed") == ALL_IDS
-    assert all(r.p_know == 0.95 for r in rows.values())
+    assert all(rows[t].p_know == 0.95 for t in ALL_IDS)
+    assert ids_with_status(rows, "unlocked") == OTHER_ROOTS  # other domains are untouched
 
 
 def test_invalid_topic_ids_rejected_without_writing_anything(client, make_user, db):
@@ -224,7 +232,7 @@ def test_different_selections_give_different_frontiers(client, make_user, db):
         who: ids_with_status(rows_for(db, uid), "unlocked")
         for who, uid in (("beginner", beginner_id), ("frontend", frontend_id), ("backend", backend_id))
     }
-    assert unlocked["beginner"] == ROOTS
+    assert unlocked["beginner"] == ROOTS | OTHER_ROOTS
     assert "react_router" in unlocked["frontend"]
     assert "rest_api_design" in unlocked["backend"]
     assert len({frozenset(s) for s in unlocked.values()}) == 3
@@ -262,7 +270,7 @@ def test_repeat_onboarding_only_adds_knowledge(client, make_user, db):
     assert (rows["css_basics"].status, rows["css_basics"].p_know) == ("completed", 0.95)
     assert rows["html_basics"].p_know == 0.99  # never lowered
     assert rows["flexbox"].status == "unlocked"
-    assert len(rows) == 30
+    assert set(rows) == ALL_IDS | OTHER_ROOTS
 
 
 def test_marking_known_clears_needs_attention(client, make_user, db):

@@ -21,12 +21,11 @@ from sqlalchemy.orm import Session
 from config import get_settings
 from models import ProctoringEvent, QuizAttempt, QuizIntegrity, QuizResponse, QuizSession, TopicProgress, TopicStatus
 from schemas.quiz import QuizQuestion
-from seed.curriculum import DOMAIN, DOMAIN_NAME
 from services import proctoring
 from services.bkt import mastery_reached, update_bkt_sequence
 from services.learning_path import ensure_progress_rows, recommendations, sync_statuses
 from services.llm_quiz import generate_questions
-from services.topic_service import get_progress_map, get_topics
+from services.topic_service import domain_name, get_progress_map, get_topic
 
 logger = logging.getLogger("adaptlearn")
 
@@ -185,18 +184,18 @@ def _abandon_open_sessions(db: Session, user_id: int) -> int:
 
 # --- Generation ------------------------------------------------------------------------
 
-def create_quiz(db: Session, user_id: int, topic_id: str, domain: str = DOMAIN) -> dict[str, Any]:
-    topics = get_topics(domain)
-    topic = next((t for t in topics if t.id == topic_id), None)
+def create_quiz(db: Session, user_id: int, topic_id: str) -> dict[str, Any]:
+    # Quizzes belong to topics, not domains: any topic in the shared pool can be quizzed.
+    topic = get_topic(topic_id)
     if topic is None:
         raise TopicNotFoundError(topic_id)
 
     progress = get_progress_map(db, user_id)
     if topic_id not in progress:
         # No progress yet (quiz requested before onboarding) or a topic added after onboarding:
-        # initialise rows exactly as onboarding with nothing known would.
-        ensure_progress_rows(db, user_id, [t.id for t in topics])
-        sync_statuses(db, user_id, domain)
+        # give it a row, then let the prerequisite graph decide whether it is unlocked.
+        ensure_progress_rows(db, user_id, [topic_id])
+        sync_statuses(db, user_id)
         progress = get_progress_map(db, user_id)
     row = progress[topic_id]
     if row.status == TopicStatus.LOCKED:
@@ -205,7 +204,7 @@ def create_quiz(db: Session, user_id: int, topic_id: str, domain: str = DOMAIN) 
     now = utc_now()
     _check_rate_limits(db, user_id, topic_id, now)  # before the LLM call, so limits also save quota
 
-    generated = generate_questions(topic, DOMAIN_NAME)
+    generated = generate_questions(topic, domain_name(topic.home_domain))
     if generated is None:
         raise QuizUnavailableError(topic_id)
 
@@ -230,7 +229,7 @@ def create_quiz(db: Session, user_id: int, topic_id: str, domain: str = DOMAIN) 
     return info
 
 
-def get_active_quiz(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str, Any] | None:
+def get_active_quiz(db: Session, user_id: int) -> dict[str, Any] | None:
     now = utc_now()
     session = db.scalar(
         select(QuizSession)
@@ -240,8 +239,9 @@ def get_active_quiz(db: Session, user_id: int, domain: str = DOMAIN) -> dict[str
     )
     if session is None:
         return None
-    names = {t.id: t.name for t in get_topics(domain)}
-    return _quiz_info(db, session, names.get(session.topic_id, session.topic_id), now)
+    topic = get_topic(session.topic_id)
+    # A topic removed from the curriculum keeps its quiz under its id.
+    return _quiz_info(db, session, topic.name if topic is not None else session.topic_id, now)
 
 
 # --- One question at a time -------------------------------------------------------------
@@ -340,7 +340,7 @@ def _assess_integrity(db: Session, session: QuizSession, responses: dict[int, Qu
     return proctoring.score_integrity(client_events, heartbeats, answered, window_start, window_end)
 
 
-def submit_quiz(db: Session, user_id: int, quiz_id: UUID, domain: str = DOMAIN) -> dict[str, Any]:
+def submit_quiz(db: Session, user_id: int, quiz_id: UUID) -> dict[str, Any]:
     """Score a quiz server-side, judge its integrity and, if verified, update progress.
 
     Unanswered, timed-out and never-served questions count as wrong. Everything happens in one
@@ -362,7 +362,7 @@ def submit_quiz(db: Session, user_id: int, quiz_id: UUID, domain: str = DOMAIN) 
     passed = score >= PASS_SCORE
 
     integrity = _assess_integrity(db, session, responses, now)
-    topic = next((t for t in get_topics(domain) if t.id == session.topic_id), None)
+    topic = get_topic(session.topic_id)
 
     row = _locked_progress_row(db, user_id, session.topic_id)
     p_know_before = row.p_know
@@ -398,12 +398,17 @@ def submit_quiz(db: Session, user_id: int, quiz_id: UUID, domain: str = DOMAIN) 
     session.submitted_at = now
 
     statuses_before = {tid: r.status for tid, r in get_progress_map(db, user_id).items()}
-    frontier = sync_statuses(db, user_id, domain)
+    frontier = sync_statuses(db, user_id)
     progress = get_progress_map(db, user_id)
+    # Only this topic's completion changed, so only topics that build on it can have been unlocked
+    # by this quiz. (Sync may also give a first row to topics that were already open, e.g. another
+    # domain's starting topics; those weren't unlocked by this quiz.)
     newly_unlocked = sorted(
-        tid
-        for tid, r in progress.items()
-        if r.status == TopicStatus.UNLOCKED and statuses_before.get(tid) != TopicStatus.UNLOCKED
+        t.id
+        for t in frontier
+        if session.topic_id in t.prerequisites
+        and progress[t.id].status == TopicStatus.UNLOCKED
+        and statuses_before.get(t.id) != TopicStatus.UNLOCKED
     )
 
     struggling = not passed or row.needs_attention
@@ -431,7 +436,10 @@ def submit_quiz(db: Session, user_id: int, quiz_id: UUID, domain: str = DOMAIN) 
         ],
         "recommended_resources": topic.resources if (struggling and topic is not None) else [],
         "newly_unlocked": newly_unlocked,
-        "next_topics": recommendations(frontier, progress),
+        # Next steps stay within the domains this topic belongs to.
+        "next_topics": recommendations(
+            frontier if topic is None else [t for t in frontier if set(t.domains) & set(topic.domains)], progress
+        ),
         "integrity": {
             "score": integrity.score, "verdict": integrity.verdict, "counted": integrity.counted,
             "reasons": integrity.reasons,

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from db.postgres import get_db
 from schemas.common import ErrorResponse
 from schemas.progress import DashboardResponse, ProgressAllResponse
-from seed.curriculum import DOMAIN
+from seed.curriculum import DEFAULT_DOMAIN
 from services import progress_service
 from services.auth_service import CurrentUser
 from services.topic_service import UnknownDomainError
@@ -29,7 +29,7 @@ DbSession = Annotated[Session, Depends(get_db)]
     },
 )
 def dashboard(
-    current_user: CurrentUser, db: DbSession, domain: Annotated[str, Query(description="Learning domain")] = DOMAIN
+    current_user: CurrentUser, db: DbSession, domain: Annotated[str, Query(description="Learning domain")] = DEFAULT_DOMAIN
 ) -> DashboardResponse:
     try:
         result = progress_service.build_dashboard(db, current_user.id, domain)

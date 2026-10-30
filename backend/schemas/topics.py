@@ -24,11 +24,22 @@ class TopicsResponse(BaseModel):
     topics: list[TopicOut]
 
 
+class ExternalPrerequisite(BaseModel):
+    id: str
+    name: str
+    domain: str = Field(description="Id of the domain that defines this prerequisite")
+    domain_name: str
+
+
 class GraphNode(TopicOut):
     status: StatusValue
     mastery: float = Field(description="Mastery percentage (p_know x 100), one decimal place")
     mastered: bool = Field(description="True when p_know >= 0.95")
-    prerequisites: list[str] = Field(description="Ids of topics that must be completed first")
+    prerequisites: list[str] = Field(description="Ids of topics in this domain that must be completed first")
+    external_prerequisites: list[ExternalPrerequisite] = Field(
+        default_factory=list, description="Prerequisites from other domains, which must also be completed first"
+    )
+    domains: list[str] = Field(default_factory=list, description="Every domain this topic belongs to")
 
 
 class GraphLink(BaseModel):
