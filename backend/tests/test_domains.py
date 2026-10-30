@@ -4,6 +4,7 @@ Two test domains are seeded into their own catalog alongside the real curriculum
 
     pytest-x:  x1 -> x2
     pytest-y:  y1 -> y2, where y1 also needs x2 from pytest-x; pytest-y shares x1
+    pytest-z:  z1, which needs x2 from pytest-x (nothing shared)
 
 The real curriculum has no prerequisite crossing into another domain's view yet, so these
 domains exercise that path. They are registered as supported only inside these tests.
@@ -26,6 +27,8 @@ Y1 = Topic("pytestd_y1", "Y One", "First topic of Y", 1, RES)
 Y2 = Topic("pytestd_y2", "Y Two", "Second topic of Y", 2, RES)
 X = Domain("pytest-x", "Pytest X", "Test domain X", (X1, X2), ((X1.id, X2.id),))
 Y = Domain("pytest-y", "Pytest Y", "Test domain Y", (Y1, Y2), ((X2.id, Y1.id), (Y1.id, Y2.id)), shared=(X1.id,))
+Z1 = Topic("pytestd_z1", "Z One", "Only topic of Z", 2, RES)
+Z = Domain("pytest-z", "Pytest Z", "Test domain Z", (Z1,), ((X2.id, Z1.id),))
 
 
 def _cleanup() -> None:
@@ -35,15 +38,15 @@ def _cleanup() -> None:
 @pytest.fixture()
 def seeded(curriculum):
     _cleanup()
-    seed_curriculum((X, Y), CATALOG)
+    seed_curriculum((X, Y, Z), CATALOG)
     yield
     _cleanup()
 
 
 @pytest.fixture()
 def supported(seeded, monkeypatch):
-    monkeypatch.setattr(topic_service, "SUPPORTED_DOMAINS", (*topic_service.SUPPORTED_DOMAINS, X.id, Y.id))
-    monkeypatch.setattr(topic_service, "DOMAIN_BY_ID", {**DOMAIN_BY_ID, X.id: X, Y.id: Y})
+    monkeypatch.setattr(topic_service, "SUPPORTED_DOMAINS", (*topic_service.SUPPORTED_DOMAINS, X.id, Y.id, Z.id))
+    monkeypatch.setattr(topic_service, "DOMAIN_BY_ID", {**DOMAIN_BY_ID, X.id: X, Y.id: Y, Z.id: Z})
 
 
 def mark_known(client, headers, domain, topic_ids):
@@ -87,7 +90,7 @@ def test_graph_includes_shared_topics_and_lists_prerequisites_from_other_domains
     assert {(link["source"], link["target"]) for link in body["links"]} == {(Y1.id, Y2.id)}
     assert by_id[Y1.id]["prerequisites"] == []
     assert by_id[Y1.id]["external_prerequisites"] == [
-        {"id": X2.id, "name": "X Two", "domain": X.id, "domain_name": "Pytest X"}
+        {"id": X2.id, "name": "X Two", "domain": X.id, "domain_name": "Pytest X", "completed": False}
     ]
     assert by_id[Y2.id]["prerequisites"] == [Y1.id]
     assert by_id[X1.id]["domains"] == [X.id, Y.id]
@@ -226,10 +229,10 @@ def test_next_topics_stay_within_the_quizzed_topics_domains(client, make_user, f
     first = quiz_taker(headers, X1.id, "CCC")
     assert [t["id"] for t in first["next_topics"]] == [X2.id]
 
-    # x2 is only in X, which is now finished; y1 (in Y) is reported as newly unlocked instead.
+    # x2 is only in X, which is now finished; y1 (in Y) and z1 (in Z) are reported as newly unlocked instead.
     second = quiz_taker(headers, X2.id, "CCC")
     assert second["next_topics"] == []
-    assert second["newly_unlocked"] == [Y1.id]
+    assert second["newly_unlocked"] == [Y1.id, Z1.id]
 
 
 @pytest.mark.usefixtures("curriculum")
@@ -247,3 +250,81 @@ def test_topics_getting_their_first_row_are_not_reported_as_newly_unlocked(clien
     # The quiz unlocked what builds on CSS; the Foundations topics got rows but were already open.
     assert result["newly_unlocked"] == ["css_grid", "flexbox"]
     assert status_of(db, user_id, "command_line_basics") == "unlocked"
+
+
+# --- Enrolment, catalogue and home across domains (Phase 23) ----------------------------
+
+@pytest.mark.usefixtures("supported")
+def test_locked_quiz_names_prerequisites_from_other_domains(client, make_user, fake_llm):
+    _, headers = make_user()
+    mark_known(client, headers, Y.id, [])
+
+    response = client.get(f"/api/quiz/generate/{Y2.id}", headers=headers)
+    assert response.json() == {"detail": "Topic is still locked. Complete its prerequisites first: Y One."}
+    response = client.get(f"/api/quiz/generate/{Y1.id}", headers=headers)
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Topic is still locked. Complete its prerequisites first: X Two (Pytest X)."}
+    assert fake_llm.calls == []
+
+
+@pytest.mark.usefixtures("supported")
+def test_graph_says_whether_a_prerequisite_from_another_domain_is_done(client, make_user):
+    _, headers = make_user()
+    mark_known(client, headers, Y.id, [])
+    assert [p["completed"] for p in nodes(client, headers, Y.id)[Y1.id]["external_prerequisites"]] == [False]
+
+    mark_known(client, headers, X.id, [X2.id])
+
+    assert [p["completed"] for p in nodes(client, headers, Y.id)[Y1.id]["external_prerequisites"]] == [True]
+
+
+@pytest.mark.usefixtures("supported")
+def test_progress_in_one_domain_makes_another_ready(client, make_user):
+    _, headers = make_user()
+    mark_known(client, headers, X.id, [X2.id])  # brings x1, which Y shares
+
+    by_id = {d["id"]: d for d in client.get("/api/domains", headers=headers).json()["domains"]}
+    y = by_id[Y.id]
+    assert y["known_topics"] == [{"id": X1.id, "name": "X One"}]
+    assert y["ready_topics"] == [{"id": Y1.id, "name": "Y One"}]  # opened by x2, from another domain
+    assert (y["completed_topics"], y["available_topics"], y["suggested"]) == (1, 1, True)
+    assert by_id[X.id]["curriculum_complete"] is True
+
+    suggestions = client.get("/api/home", headers=headers).json()["suggestions"]
+    assert [s["id"] for s in suggestions] == [Z.id, Y.id]  # z1 ready: 1 of 1 beats 2 of 3
+
+
+@pytest.mark.usefixtures("supported")
+def test_suggestions_rank_the_biggest_head_start_first(client, make_user):
+    _, headers = make_user()
+    # Z: z1 ready (1 of 1). Y: x1 known and y1 ready (2 of 3). Web Development: Git Basics (1 of 30).
+    mark_known(client, headers, X.id, [X2.id])
+    mark_known(client, headers, "foundations", ["git_basics"])
+
+    suggestions = client.get("/api/home", headers=headers).json()["suggestions"]
+
+    assert [s["id"] for s in suggestions] == [Z.id, Y.id, "web-development"]
+
+
+@pytest.mark.usefixtures("supported")
+def test_home_up_next_includes_a_topic_opened_from_another_domain(client, make_user):
+    _, headers = make_user()
+    mark_known(client, headers, Y.id, [])
+    mark_known(client, headers, X.id, [X2.id])
+
+    body = client.get("/api/home", headers=headers).json()
+
+    assert [d["id"] for d in body["domains"]] == [Y.id, X.id]
+    assert [(t["id"], t["domains"]) for t in body["up_next"]][:1] == [(Y1.id, [Y.id])]
+    assert next(d for d in body["domains"] if d["id"] == X.id)["up_next"] is None  # X is finished
+
+
+@pytest.mark.usefixtures("supported")
+def test_a_domain_is_suggested_for_topics_opened_from_elsewhere_alone(client, make_user):
+    _, headers = make_user()
+    mark_known(client, headers, X.id, [X2.id])
+
+    z = next(d for d in client.get("/api/domains", headers=headers).json()["domains"] if d["id"] == Z.id)
+
+    assert (z["known_topics"], z["ready_topics"]) == ([], [{"id": Z1.id, "name": "Z One"}])
+    assert (z["completed_topics"], z["suggested"]) == (0, True)

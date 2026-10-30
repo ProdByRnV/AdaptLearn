@@ -25,7 +25,7 @@ from services import proctoring
 from services.bkt import mastery_reached, update_bkt_sequence
 from services.learning_path import ensure_progress_rows, recommendations, sync_statuses
 from services.llm_quiz import generate_questions
-from services.topic_service import domain_name, get_progress_map, get_topic
+from services.topic_service import TopicInfo, domain_name, get_progress_map, get_topic
 
 logger = logging.getLogger("adaptlearn")
 
@@ -49,7 +49,9 @@ class TopicNotFoundError(Exception):
 
 
 class TopicLockedError(Exception):
-    pass
+    def __init__(self, topic_id: str, missing: list[str] | None = None):
+        super().__init__(topic_id)
+        self.missing = missing or []  # unfinished prerequisites, e.g. "Git Basics (Foundations)"
 
 
 class QuizUnavailableError(Exception):
@@ -199,7 +201,7 @@ def create_quiz(db: Session, user_id: int, topic_id: str) -> dict[str, Any]:
         progress = get_progress_map(db, user_id)
     row = progress[topic_id]
     if row.status == TopicStatus.LOCKED:
-        raise TopicLockedError(topic_id)
+        raise TopicLockedError(topic_id, missing_prerequisites(topic, progress))
 
     now = utc_now()
     _check_rate_limits(db, user_id, topic_id, now)  # before the LLM call, so limits also save quota
@@ -227,6 +229,17 @@ def create_quiz(db: Session, user_id: int, topic_id: str) -> dict[str, Any]:
         f", abandoned {abandoned} unfinished quiz(zes)" if abandoned else "",
     )
     return info
+
+
+def missing_prerequisites(topic: TopicInfo, progress: dict[str, TopicProgress]) -> list[str]:
+    """Names of the topic's unfinished prerequisites; one from another domain also names that domain."""
+    return [
+        name if pre_domain in topic.domains else f"{name} ({domain_name(pre_domain)})"
+        for pre_id, name, pre_domain in zip(
+            topic.prerequisites, topic.prerequisite_names, topic.prerequisite_domains, strict=True
+        )
+        if (pre := progress.get(pre_id)) is None or pre.status != TopicStatus.COMPLETED
+    ]
 
 
 def get_active_quiz(db: Session, user_id: int) -> dict[str, Any] | None:

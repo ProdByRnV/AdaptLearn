@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from config import get_settings
@@ -34,8 +34,26 @@ def check_connection() -> None:
         conn.execute(text("SELECT 1"))
 
 
-def init_db() -> None:
-    """Create any missing tables. Existing tables are left untouched (no migrations)."""
-    import models  # noqa: F401  - importing registers every model on Base.metadata
+# Learners from before domain enrolment (Phase 23) were onboarded into the only domain there was
+# when they had any progress rows; they keep that, joined and onboarded from their first row's date.
+BACKFILL_ENROLMENTS = text("""
+INSERT INTO domain_enrolments (user_id, domain_id, joined_at, onboarded_at)
+SELECT user_id, :domain, MIN(created_at), MIN(created_at) FROM topic_progress GROUP BY user_id
+ON CONFLICT (user_id, domain_id) DO NOTHING
+""")
 
-    Base.metadata.create_all(bind=engine)
+
+def init_db(bind: Engine | None = None) -> None:
+    """Create any missing tables. Existing tables are left untouched (no migrations).
+
+    The one exception: when the domain_enrolments table is first created, existing learners are
+    enrolled in the default domain in the same transaction, so the backfill runs exactly once.
+    """
+    import models  # noqa: F401  - importing registers every model on Base.metadata
+    from seed.curriculum import DEFAULT_DOMAIN
+
+    with (bind or engine).begin() as conn:
+        had_enrolments = inspect(conn).has_table(models.DomainEnrolment.__tablename__)
+        Base.metadata.create_all(bind=conn)
+        if not had_enrolments:
+            conn.execute(BACKFILL_ENROLMENTS, {"domain": DEFAULT_DOMAIN})

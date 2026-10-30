@@ -52,6 +52,7 @@ class User(Base):
     progress: Mapped[list["TopicProgress"]] = relationship(back_populates="user", passive_deletes=True)
     attempts: Mapped[list["QuizAttempt"]] = relationship(back_populates="user", passive_deletes=True)
     quiz_sessions: Mapped[list["QuizSession"]] = relationship(back_populates="user", passive_deletes=True)
+    enrolments: Mapped[list["DomainEnrolment"]] = relationship(back_populates="user", passive_deletes=True)
 
     @validates("email")
     def _normalize_email(self, key: str, value: str) -> str:
@@ -116,6 +117,27 @@ class TopicProgress(Base):
 
     def __repr__(self) -> str:
         return f"<TopicProgress user={self.user_id} topic={self.topic_id!r} status={self.status} p_know={self.p_know:.2f}>"
+
+
+class DomainEnrolment(Base):
+    """A domain the learner has joined (Phase 23). Progress stays per topic; this only records interest.
+
+    onboarded_at is set the first time the learner completes that domain's onboarding.
+    """
+
+    __tablename__ = "domain_enrolments"
+    __table_args__ = (UniqueConstraint("user_id", "domain_id", name="uq_domain_enrolments_user_domain"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    onboarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="enrolments")
+
+    def __repr__(self) -> str:
+        return f"<DomainEnrolment user={self.user_id} domain={self.domain_id!r} onboarded={self.onboarded_at is not None}>"
 
 
 class QuizAttempt(Base):

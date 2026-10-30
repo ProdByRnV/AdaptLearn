@@ -350,7 +350,9 @@ def test_locked_topic_returns_403(client, make_user, fake_llm):
     onboard(client, headers)
     response = generate(client, headers, "react_fundamentals")
     assert response.status_code == 403
-    assert response.json() == {"detail": "Topic is still locked. Complete its prerequisites first."}
+    assert response.json() == {
+        "detail": "Topic is still locked. Complete its prerequisites first: CSS Basics, HTML Basics, JavaScript Fundamentals."
+    }
     assert fake_llm.calls == []  # no LLM cost for a locked topic
 
 

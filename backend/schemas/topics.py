@@ -29,6 +29,7 @@ class ExternalPrerequisite(BaseModel):
     name: str
     domain: str = Field(description="Id of the domain that defines this prerequisite")
     domain_name: str
+    completed: bool = Field(description="True when the learner has completed this prerequisite")
 
 
 class GraphNode(TopicOut):

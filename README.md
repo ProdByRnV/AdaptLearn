@@ -8,7 +8,7 @@ An adaptive learning platform that builds a personalised learning path instead o
 - **PostgreSQL** - users, progress, quiz sessions and attempt history.
 - **React** - sign-in, onboarding, a dashboard, proctored quizzes and an interactive knowledge graph.
 
-The curriculum is organised into **domains** that share one pool of topics: **Web Development** (30 topics) and a starter **Foundations** domain (3 topics, one of them shared with Web Development). More domains are planned (see [PROJECT-STATE.md](PROJECT-STATE.md)).
+The curriculum is organised into **domains** that share one pool of topics: **Web Development** (30 topics) and a starter **Foundations** domain (3 topics, one of them shared with Web Development). Learners join whichever domains they like and onboard in each; a home endpoint brings their progress across joined domains together. More domains are planned (see [PROJECT-STATE.md](PROJECT-STATE.md)).
 
 AdaptLearn is complete for local use and runs on localhost (Docker for the databases, see **Local development**); it is not deployed. See [PROJECT-STATE.md](PROJECT-STATE.md) for current progress. The specification documents (PRD, architecture and roadmap) are kept privately and are not part of this repository.
 
@@ -163,21 +163,22 @@ Both endpoints need a Bearer token and take an optional `?domain=` (`web-develop
 | Endpoint | Returns |
 |---|---|
 | `GET /api/topics/all` | `{domain, topics}`: every topic with `id`, `name`, `description`, `difficulty` and `resources` (`[{title, url, type}]`), ordered by difficulty then name |
-| `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`), `prerequisites` (ids of prerequisites in this domain), `external_prerequisites` (`[{id, name, domain, domain_name}]` for prerequisites from other domains) and `domains` (every domain the topic belongs to). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks, between topics of this domain |
+| `GET /api/topics/graph` | `{domain, nodes, links}` for the knowledge graph. Each node adds the current user's `status`, `mastery` (percentage), `mastered` (`p_know >= 0.95`), `prerequisites` (ids of prerequisites in this domain), `external_prerequisites` (`[{id, name, domain, domain_name, completed}]` for prerequisites from other domains, `completed` saying whether the learner has done it) and `domains` (every domain the topic belongs to). Each link is `{source, target}`, pointing from a prerequisite to the topic it unlocks, between topics of this domain |
 
 #### Learning path: `GET /api/topics/learning-path`
 
 Returns `{domain, onboarded, curriculum_complete, recommended}`. `recommended` holds at most 3 learnable topics from the domain: not completed, every prerequisite completed (including prerequisites from other domains), ordered by difficulty then name. Topics already in progress are included with status `in_progress`.
 
-- **Before onboarding** (no progress rows): `onboarded` is `false`, the starting topics are returned, and nothing is written. The frontend uses this to send the learner to onboarding.
-- **After onboarding:** statuses are synced first, so any topic that has become learnable is stored as `unlocked`. A missing row for a learnable topic is recreated, and completed or in-progress topics are never changed.
+- **`onboarded` is per domain:** `false` until the learner has been through this domain's onboarding (`POST /api/topics/mark-known` for it). The frontend uses this to send the learner to onboarding.
+- **A learner with no progress at all:** the starting topics are returned and nothing is written.
+- **Otherwise** (onboarded here or in another domain): statuses are synced first, so any topic that has become learnable is stored as `unlocked`. A missing row for a learnable topic is recreated, and completed or in-progress topics are never changed.
 - **Everything completed:** `curriculum_complete` is `true` (every topic in the domain is completed) and `recommended` is empty. An empty `recommended` alone isn't enough: a topic can still be waiting on a prerequisite from another domain.
 
 The same user state always gives the same answer.
 
 #### Onboarding: `POST /api/topics/mark-known`
 
-Body: `{"domain": "web-development", "topic_ids": ["html_basics", "css_basics"]}` (`topic_ids` may be empty; up to 100 ids).
+Body: `{"domain": "web-development", "topic_ids": ["html_basics", "css_basics"]}` (`topic_ids` may be empty; up to 100 ids). Onboarding is per domain: the topics must belong to that domain, and saving joins the domain if needed and records that the learner has onboarded there (the first date is kept if they onboard again).
 
 1. Every id is checked first. Any unknown id rejects the whole request with `400 {"detail": "Unknown topic ids: ..."}` and nothing is written.
 2. A known topic implies its prerequisites, so every ancestor of a selected topic (found with a variable-length Neo4j path query) is marked known too.
@@ -190,6 +191,31 @@ Response: `{message, known_count, added_prerequisites, recommended}`, where `rec
 Calling it again only adds knowledge: completed topics are never relocked, mastery is never lowered, and topics already in progress keep that status.
 
 A topic's status and mastery come from the user's `topic_progress` row. For a topic without a row yet (for example before onboarding), status is derived from the graph: `unlocked` when every prerequisite is completed, otherwise `locked`, with the starting mastery of 10%. A domain's topics are read in one Neo4j query, so there are no per-topic lookups.
+
+### Domains and home
+
+All three need a Bearer token.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/domains` | `{domains}`: the catalogue, every domain in curriculum order (see below) |
+| `POST /api/domains/{domain_id}/join` | `201 {domain, domain_name, joined_at, onboarded}` when joined now; `200` with the same body if already joined (nothing changes); `404` for an unknown domain |
+| `GET /api/home` | `{domains, up_next, suggestions, recent_attempts}`: the learner's home page in one call (see below) |
+
+Joining only records interest: no domain has priority, learners join any in any order, and joining never changes a topic's status. Onboarding then records what the learner already knows there.
+
+Each catalogue entry describes a domain and the learner's standing in it: `id`, `name`, `description`, `total_topics`, `completed_topics`, `in_progress_topics`, `available_topics` (learnable now), `progress_percent`, `curriculum_complete`, `joined`, `joined_at`, `onboarded`, `known_topics` (its completed topics), `ready_topics` (learnable topics that have prerequisites, i.e. opened by what the learner has already done) and `suggested`. Progress belongs to topics, so the numbers include topics completed through other domains: that is a learner's **head start**. A domain is `suggested` when it isn't joined and the learner has a head start there (a known or ready topic).
+
+The home response:
+
+| Field | Contents |
+|---|---|
+| `domains` | The joined domains, in the order they were joined, each a catalogue entry plus `up_next` (its next topic, or `null` before onboarding there or once it is complete) |
+| `up_next` | The next 3 topics across the domains the learner has onboarded in, easiest first, each with `domains` (which of those domains it counts towards); a shared topic appears once |
+| `suggestions` | Up to 3 suggested domains, the biggest head start (known + ready topics as a share of the domain) first |
+| `recent_attempts` | The latest 5 quizzes in any domain, the same shape as the dashboard's |
+
+Both read the curriculum and the learner's frontier once, so each makes two Neo4j calls however many domains there are (tests enforce this). Neither writes anything for a learner with no progress yet.
 
 ### Quizzes (proctored)
 
@@ -210,7 +236,7 @@ No response before submission ever contains an answer or explanation; the answer
 
 | Status | When |
 |---|---|
-| `403` | Generate: the topic is still locked for this user |
+| `403` | Generate: the topic is still locked for this user. The message names the unfinished prerequisites, with the domain for one from another domain, for example "Topic is still locked. Complete its prerequisites first: HTML Basics, Command Line Basics (Foundations)." |
 | `404` | Unknown topic, or a quiz id that is unknown **or belongs to another user** (same response, so ids can't be probed) |
 | `409` | The quiz was already submitted; or `/next` after the last question; or `/answer` for a question that isn't open |
 | `410` | The quiz session expired (`QUIZ_SESSION_TTL_MINUTES`, default 30) |
@@ -273,21 +299,21 @@ Model settings in `backend/.env`:
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/progress/dashboard` | Everything the dashboard needs in one call (see below) |
+| `GET /api/progress/dashboard` | Everything one domain's dashboard needs in one call (see below); optional `?domain=` as for the topic endpoints |
 | `GET /api/progress/all` | `{topics: [{topic_id, status, p_know, attempts, correct, needs_attention}]}`: the learner's raw progress rows, ordered by topic id (empty before onboarding) |
 
 The dashboard response:
 
 | Field | Contents |
 |---|---|
-| `onboarded`, `curriculum_complete` | Whether to send the learner to onboarding, or show the curriculum-complete state |
+| `onboarded`, `curriculum_complete` | Whether to send the learner to this domain's onboarding, or show the curriculum-complete state |
 | `stats` | `total_topics`, `completed_topics`, `in_progress_topics`, `mastered_topics` (p_know >= 0.95), `average_mastery` (mean % over the learner's topics; 0 before onboarding), `total_attempts`, `flagged_attempts` (failed the integrity check; didn't count), `progress_percent` (completed / total) |
 | `recommended` | The next 3 topics, the same cards as `/api/topics/learning-path` |
 | `needs_attention` | Flagged topics with mastery, attempt count and their learning resources |
 | `recent_attempts` | The latest 5 quizzes, newest first: topic name, score, pass/fail, mastery before → after, time, and `counted` / `integrity_verdict` / `integrity_score` (null verdict for attempts made before proctoring) |
 | `mastery` | Every topic with status, mastery % and mastered flag, easiest first |
 
-Topic names and resources come from a single Neo4j query joined in memory, so the dashboard makes exactly two Neo4j calls (topics + learning path) however much the learner has done. A test enforces this.
+Everything is scoped to the domain: attempt counts, needs-attention topics and recent quizzes cover the domain's topics only (a quiz on a shared topic counts in every domain that uses it). Topic names and resources come from a single Neo4j query joined in memory, so the dashboard makes exactly two Neo4j calls (topics + learning path) however much the learner has done. A test enforces this.
 
 ### Mastery tracking (Bayesian Knowledge Tracing)
 
@@ -342,8 +368,9 @@ On startup the backend creates any missing PostgreSQL tables with SQLAlchemy's `
 | `quiz_responses` | One row per served question: when it was served, its deadline, the answer and whether it timed out |
 | `proctoring_events` | Signals reported by the quiz page (heartbeats, tab switches, ...) with trusted server receive times |
 | `quiz_integrity` | The integrity verdict per quiz: score, verified / flagged / abandoned, whether it counted, reasons |
+| `domain_enrolments` | The domains each learner has joined: when they joined and when they first onboarded there |
 
-`create_all()` only creates tables that don't exist yet; it never alters existing ones. This keeps the MVP setup to a single command, but it means **schema changes need a reset in development**:
+`create_all()` only creates tables that don't exist yet; it never alters existing ones. One step runs alongside it: when `domain_enrolments` is first created, every existing learner with progress is enrolled in Web Development and marked onboarded there (dated from their first progress row), in the same transaction, so learners from before domains could be joined keep their place. It never runs again. This keeps the MVP setup to a single command, but it means **schema changes need a reset in development**:
 
 ```bash
 docker exec adaptlearn-postgres psql -U postgres -d adaptlearn -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
@@ -423,11 +450,11 @@ adaptlearn/
 │   ├── requirements.txt
 │   ├── .env.example
 │   ├── db/              # PostgreSQL + Neo4j connections
-│   ├── models/          # SQLAlchemy models (users, topic_progress, quiz_attempts, quiz_sessions)
+│   ├── models/          # SQLAlchemy models (users, topic_progress, quiz tables, domain_enrolments)
 │   ├── schemas/         # Pydantic request/response schemas
 │   ├── routers/         # API routes
 │   ├── seed/            # Curriculum (one file per domain in domains/) + idempotent Neo4j seeder
-│   ├── services/        # Business logic (auth, BKT, quiz, learning path)
+│   ├── services/        # Business logic (auth, BKT, quiz, learning path, enrolment, catalogue and home)
 │   └── tests/           # pytest suite (runs against adaptlearn_test)
 └── frontend/            # React application
     ├── index.html

@@ -84,10 +84,11 @@ def generate_quiz(
         quiz = quiz_service.create_quiz(db, current_user.id, topic_id)
     except TopicNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Topic '{topic_id}' not found")
-    except TopicLockedError:
+    except TopicLockedError as exc:
+        detail = "Topic is still locked. Complete its prerequisites first"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Topic is still locked. Complete its prerequisites first.",
+            detail=f"{detail}: {', '.join(exc.missing)}." if exc.missing else f"{detail}.",
         )
     except QuizRateLimitedError as exc:
         minutes = max(1, round(exc.retry_after_seconds / 60))

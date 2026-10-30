@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from db import neo4j_db
 from models import TopicProgress, TopicStatus
 from services.bkt import DEFAULT_P_KNOW, MASTERY_THRESHOLD
-from services import topic_service
+from services import enrolment_service, topic_service
 from services.topic_service import TopicInfo, ensure_domain, get_progress_map, get_topics, to_percent, topic_from_row
 
 logger = logging.getLogger("adaptlearn")
@@ -130,17 +130,19 @@ def recommendations(
 def get_learning_path(db: Session, user_id: int, domain: str) -> dict[str, Any]:
     """The next topics to learn (at most 3), easiest first.
 
-    Before onboarding (no progress rows) nothing is written: the starting frontier is returned with
-    onboarded=False so the client can send the learner to onboarding first. Otherwise statuses are
-    synced so any topic that has become learnable is stored as unlocked.
+    onboarded is per domain: False until the learner has been through this domain's onboarding, so
+    the client can send them there first. A learner with no progress at all gets the starting
+    frontier and nothing is written; otherwise statuses are synced so any topic that has become
+    learnable is stored as unlocked (progress from other domains already counts here).
     """
     ensure_domain(domain)
+    onboarded = enrolment_service.is_onboarded(db, user_id, domain)
     progress = get_progress_map(db, user_id)
     if not progress:
         frontier = in_domain(get_frontier([]), domain)
         return {
             "domain": domain,
-            "onboarded": False,
+            "onboarded": onboarded,
             "curriculum_complete": False,
             "recommended": recommendations(frontier, {}),
         }
@@ -150,7 +152,7 @@ def get_learning_path(db: Session, user_id: int, domain: str) -> dict[str, Any]:
     progress = get_progress_map(db, user_id)
     return {
         "domain": domain,
-        "onboarded": True,
+        "onboarded": onboarded,
         "curriculum_complete": domain_complete(frontier, domain, progress),
         "recommended": recommendations(frontier, progress),
     }
@@ -171,7 +173,7 @@ def domain_complete(domain_frontier: list[TopicInfo], domain: str, progress: dic
 
 
 def mark_known(db: Session, user_id: int, domain: str, topic_ids: list[str]) -> dict[str, Any]:
-    """Onboarding: initialise the user's progress and mark the topics they already know.
+    """Onboarding for one domain: join it, initialise progress and mark the topics already known.
 
     Known topics and all of their prerequisites become completed with p_know of at least 0.95
     (decision 3: a known topic implies its prerequisites are known). Calling it again only adds
@@ -197,8 +199,9 @@ def mark_known(db: Session, user_id: int, domain: str, topic_ids: list[str]) -> 
         row.needs_attention = False
 
     frontier = in_domain(sync_statuses(db, user_id), domain)
+    enrolment_service.mark_onboarded(db, user_id, domain)
     db.commit()
-    logger.info("Onboarding saved for user id=%s: %d known topics", user_id, len(known))
+    logger.info("Onboarding saved for user id=%s in %s: %d known topics", user_id, domain, len(known))
 
     return {
         "message": "Onboarding saved",

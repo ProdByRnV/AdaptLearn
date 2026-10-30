@@ -40,6 +40,11 @@ DOMAIN_TOPICS = """
 MATCH (t:Topic)-[:IN_DOMAIN]->(:Domain {id: $domain})
 """ + _TOPIC_FIELDS
 
+ALL_TOPICS = """
+MATCH (t:Topic)
+WHERE EXISTS { (t)-[:IN_DOMAIN]->(d:Domain) WHERE d.id IN $domains }
+""" + _TOPIC_FIELDS
+
 TOPIC_BY_ID = """
 MATCH (t:Topic {id: $id})
 WHERE EXISTS { (t)-[:IN_DOMAIN]->(d:Domain) WHERE d.id IN $domains }
@@ -111,6 +116,12 @@ def get_topics(domain: str = DEFAULT_DOMAIN) -> list[TopicInfo]:
     return [topic_from_row(row) for row in rows]
 
 
+def get_all_topics() -> list[TopicInfo]:
+    """Every topic in any supported domain (each once, with all its domains), easiest first."""
+    rows = neo4j_db.read(ALL_TOPICS, domains=list(SUPPORTED_DOMAINS))
+    return [topic_from_row(row) for row in rows]
+
+
 def get_topic(topic_id: str) -> TopicInfo | None:
     """One topic from the shared pool, whichever domains it belongs to."""
     rows = neo4j_db.read(TOPIC_BY_ID, id=topic_id, domains=list(SUPPORTED_DOMAINS))
@@ -144,6 +155,10 @@ def to_percent(p_know: float) -> float:
     return round(p_know * 100, 1)
 
 
+def percent_of(part: int, whole: int) -> float:
+    return round(part / whole * 100, 1) if whole else 0.0
+
+
 def build_graph(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> dict[str, Any]:
     """The domain's topics and the links between them.
 
@@ -158,7 +173,13 @@ def build_graph(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> dict
         status, p_know = effective_state(topic, progress)
         internal = [pre_id for pre_id in topic.prerequisites if pre_id in in_domain]
         external = [
-            {"id": pre_id, "name": name, "domain": pre_domain, "domain_name": domain_name(pre_domain)}
+            {
+                "id": pre_id,
+                "name": name,
+                "domain": pre_domain,
+                "domain_name": domain_name(pre_domain),
+                "completed": (row := progress.get(pre_id)) is not None and row.status == TopicStatus.COMPLETED,
+            }
             for pre_id, name, pre_domain in zip(
                 topic.prerequisites, topic.prerequisite_names, topic.prerequisite_domains, strict=True
             )

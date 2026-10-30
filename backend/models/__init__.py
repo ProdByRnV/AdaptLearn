@@ -1,4 +1,5 @@
 from models.models import (
+    DomainEnrolment,
     ProctoringEvent,
     QuizAttempt,
     QuizIntegrity,
@@ -10,6 +11,7 @@ from models.models import (
 )
 
 __all__ = [
+    "DomainEnrolment",
     "ProctoringEvent",
     "QuizAttempt",
     "QuizIntegrity",
