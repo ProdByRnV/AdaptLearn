@@ -51,6 +51,7 @@ class MasteryItem(BaseModel):
 
 class DashboardResponse(BaseModel):
     domain: str
+    domain_name: str
     onboarded: bool
     curriculum_complete: bool
     stats: DashboardStats

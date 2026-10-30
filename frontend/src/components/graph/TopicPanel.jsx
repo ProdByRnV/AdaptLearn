@@ -1,29 +1,40 @@
-import { ArrowRight, Lock, Sparkles, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Lock, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { ProgressBar } from '@/components/common/ProgressBar'
+import { QuizLink } from '@/components/topics/QuizLink'
 import { ResourceList } from '@/components/topics/ResourceList'
 import { StatusDot } from '@/components/topics/StatusDot'
 import { TopicStatusBadge } from '@/components/topics/TopicStatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { topicInDomain } from '@/lib/domains'
 import { missingPrerequisites, unlocksOf } from '@/lib/graph'
 import { TOPIC_STATUS } from '@/lib/topic-status'
 import { difficultyLabel, listNames, topicAction } from '@/lib/topics'
 
+const LINK_ROW =
+  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-ink hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none'
+
 /**
  * Details of the selected topic: status, difficulty, description, mastery, a lock-aware action
  * (a quiz link, or what to complete first), prerequisites and what it unlocks (both clickable),
- * and learning resources. The heading takes focus when the topic changes.
+ * the domains it belongs to, and learning resources. The heading takes focus when the topic changes.
+ *
+ * In a domain's graph (`domainId`), prerequisites from other domains and the other domains a shared
+ * topic belongs to link to that domain's graph. On the whole map (no `domainId`), every prerequisite
+ * is a node, and the panel lists every domain the topic belongs to.
  */
-export function TopicPanel({ topic, topics, topicsById, onSelect, onClose }) {
+export function TopicPanel({ topic, topics, topicsById, domainId = null, domainNames = new Map(), onSelect, onClose }) {
   const headingRef = useRef(null)
   const prerequisites = topic.prerequisites.map((id) => topicsById.get(id)).filter(Boolean)
+  const external = topic.external_prerequisites ?? []
   const unlocks = unlocksOf(topic.id, topics)
   const missing = missingPrerequisites(topic, topicsById)
   const action = topicAction(topic)
+  const domains = (topic.domains ?? []).filter((id) => id !== domainId)
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true })
@@ -68,20 +79,70 @@ export function TopicPanel({ topic, topics, topicsById, onSelect, onClose }) {
           </div>
         ) : (
           <Button asChild className="h-10 w-full">
-            <Link to={action.to} aria-label={`${action.label}: ${topic.name}`}>
+            <QuizLink to={action.to} aria-label={`${action.label}: ${topic.name}`}>
               {action.label}
               <ArrowRight aria-hidden="true" />
-            </Link>
+            </QuizLink>
           </Button>
         )}
 
-        <TopicLinks
-          title="Prerequisites"
-          empty="None. This is a starting topic."
-          topics={prerequisites}
-          onSelect={onSelect}
-        />
-        <TopicLinks title="Unlocks" empty="Nothing. This is a final topic." topics={unlocks} onSelect={onSelect} />
+        <section aria-labelledby="topic-prerequisites-heading" className="flex flex-col gap-2">
+          <h3 id="topic-prerequisites-heading" className="text-sm font-semibold text-ink">
+            Prerequisites
+          </h3>
+          {prerequisites.length === 0 && external.length === 0 ? (
+            <p className="text-sm text-muted-foreground">None. This is a starting topic.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              <TopicButtons topics={prerequisites} onSelect={onSelect} />
+              {external.map((pre) => (
+                <li key={pre.id}>
+                  <Link to={topicInDomain(pre.domain, pre.id)} className={LINK_ROW}>
+                    <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-primary" />
+                    <span className="flex flex-1 flex-col">
+                      <span>{pre.name}</span>
+                      <span className="text-xs text-muted-foreground">In {pre.domain_name}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">{pre.completed ? 'Completed' : 'Not completed'}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section aria-labelledby="topic-unlocks-heading" className="flex flex-col gap-2">
+          <h3 id="topic-unlocks-heading" className="text-sm font-semibold text-ink">
+            Unlocks
+          </h3>
+          {unlocks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {domainId ? 'Nothing in this domain.' : 'Nothing. This is a final topic.'}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              <TopicButtons topics={unlocks} onSelect={onSelect} />
+            </ul>
+          )}
+        </section>
+
+        {domains.length > 0 && (
+          <section aria-labelledby="topic-domains-heading" className="flex flex-col gap-2">
+            <h3 id="topic-domains-heading" className="text-sm font-semibold text-ink">
+              {domainId ? 'Also part of' : 'Part of'}
+            </h3>
+            <ul className="flex flex-col gap-1">
+              {domains.map((id) => (
+                <li key={id}>
+                  <Link to={topicInDomain(id, topic.id)} className={LINK_ROW}>
+                    <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-primary" />
+                    {domainNames.get(id) ?? id}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {topic.resources?.length > 0 && (
           <section aria-labelledby="topic-resources-heading" className="flex flex-col gap-2">
@@ -96,32 +157,14 @@ export function TopicPanel({ topic, topics, topicsById, onSelect, onClose }) {
   )
 }
 
-function TopicLinks({ title, empty, topics, onSelect }) {
-  const id = `topic-${title.toLowerCase()}-heading`
-  return (
-    <section aria-labelledby={id} className="flex flex-col gap-2">
-      <h3 id={id} className="text-sm font-semibold text-ink">
-        {title}
-      </h3>
-      {topics.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{empty}</p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {topics.map((topic) => (
-            <li key={topic.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(topic.id)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-ink hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-              >
-                <StatusDot status={topic.status} />
-                <span className="flex-1">{topic.name}</span>
-                <span className="text-xs text-muted-foreground">{TOPIC_STATUS[topic.status]?.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
+function TopicButtons({ topics, onSelect }) {
+  return topics.map((topic) => (
+    <li key={topic.id}>
+      <button type="button" onClick={() => onSelect(topic.id)} className={LINK_ROW}>
+        <StatusDot status={topic.status} />
+        <span className="flex-1">{topic.name}</span>
+        <span className="text-xs text-muted-foreground">{TOPIC_STATUS[topic.status]?.label}</span>
+      </button>
+    </li>
+  ))
 }

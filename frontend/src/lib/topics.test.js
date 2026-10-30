@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { difficultyLabel, domainLabel, groupByDifficulty, impliedPrerequisites, listNames } from '@/lib/topics'
+import { difficultyLabel, domainLabel, groupByDifficulty, impliedPrerequisites, listNames, retryTopicIds } from '@/lib/topics'
 import { topicGraph } from '@/test/fixtures'
 
 const { nodes } = topicGraph()
@@ -68,5 +68,19 @@ describe('display helpers', () => {
     [['A', 'B', 'C', 'D'], 'A, B and 2 more'],
   ])('listNames %j', (names, text) => {
     expect(listNames(names)).toBe(text)
+  })
+})
+
+describe('retryTopicIds', () => {
+  const attempt = (topicId, passed, counted = true) => ({ topic_id: topicId, passed, counted })
+
+  it("follows each topic's latest counted attempt", () => {
+    const attempts = [attempt('a', false), attempt('b', true), attempt('b', false), attempt('a', true)]
+    expect([...retryTopicIds(attempts)]).toEqual(['a'])
+  })
+
+  it('skips attempts that did not count, and adds topics that need attention', () => {
+    const attempts = [attempt('a', false, false), attempt('a', true)]
+    expect([...retryTopicIds(attempts, [{ id: 'c' }])]).toEqual(['c'])
   })
 })

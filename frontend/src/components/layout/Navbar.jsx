@@ -1,4 +1,4 @@
-import { ChevronDown, LayoutDashboard, LogOut, Network } from 'lucide-react'
+import { ChevronDown, House, LayoutGrid, LogOut, Network } from 'lucide-react'
 import { Link, NavLink } from 'react-router'
 import { cn } from 'cn'
 
@@ -14,9 +14,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/hooks/useAuth'
 
+// Domains stays marked on every domain's own pages (its dashboard, graph and onboarding).
 const NAV_ITEMS = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/graph', label: 'Knowledge graph', icon: Network },
+  { to: '/home', label: 'Home', icon: House },
+  { to: '/domains', label: 'Domains', icon: LayoutGrid },
+  { to: '/map', label: 'Full map', icon: Network },
 ]
 
 function initials(name = '') {
@@ -30,7 +32,7 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-        <Link to="/dashboard" aria-label="AdaptLearn home" className="shrink-0 rounded-md">
+        <Link to="/home" aria-label="AdaptLearn home" className="shrink-0 rounded-md">
           <Logo markClassName="size-7" textClassName="hidden sm:inline" />
         </Link>
 

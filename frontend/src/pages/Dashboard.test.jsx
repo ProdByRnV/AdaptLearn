@@ -1,19 +1,26 @@
 import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchCurrentUser } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
+import { fetchCatalogue } from '@/api/domains'
 import { fetchDashboard } from '@/api/progress'
-import { dashboard } from '@/test/fixtures'
+import { catalogue, dashboard } from '@/test/fixtures'
 import { deferred, httpError, LEARNER } from '@/test/helpers'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchTopicGraph: vi.fn(), fetchTopicMap: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/domains', () => ({ fetchCatalogue: vi.fn(), fetchHome: vi.fn(), joinDomain: vi.fn() }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 
-async function open(data = dashboard(), entry = '/dashboard') {
+// The domain switcher reads the catalogue.
+beforeEach(() => {
+  fetchCatalogue.mockResolvedValue(catalogue())
+})
+
+async function open(data = dashboard(), entry = '/domains/web-development') {
   tokenStorage.set('jwt')
   fetchCurrentUser.mockResolvedValue(LEARNER)
   fetchDashboard.mockResolvedValue(data)
@@ -32,7 +39,7 @@ describe('loading', () => {
     fetchCurrentUser.mockResolvedValue(LEARNER)
     const pending = deferred()
     fetchDashboard.mockReturnValue(pending.promise)
-    renderAt('/dashboard')
+    renderAt('/domains/web-development')
     expect(await screen.findByRole('status', { name: 'Loading your dashboard' })).toBeInTheDocument()
     await act(async () => pending.resolve(dashboard()))
     expect(screen.queryByRole('status', { name: 'Loading your dashboard' })).not.toBeInTheDocument()
@@ -44,7 +51,7 @@ describe('loading', () => {
     fetchCurrentUser.mockResolvedValue(LEARNER)
     fetchDashboard.mockRejectedValueOnce(httpError(503, 'Database is temporarily unavailable. Please try again shortly.'))
     const user = userEvent.setup()
-    renderAt('/dashboard')
+    renderAt('/domains/web-development')
     expect(await screen.findByRole('heading', { name: "Couldn't load your dashboard" })).toBeInTheDocument()
     expect(screen.getByText('Database is temporarily unavailable. Please try again shortly.')).toBeInTheDocument()
     fetchDashboard.mockResolvedValueOnce(dashboard())
@@ -54,11 +61,15 @@ describe('loading', () => {
 })
 
 describe('header and stats', () => {
-  it('greets the learner and summarises progress in the domain', async () => {
+  it('names the domain from the URL and summarises progress in it', async () => {
     await open()
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back, Puja Sharma' })).toBeInTheDocument()
-    expect(screen.getByText('Web Development · 7 of 30 topics completed')).toBeInTheDocument()
-    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Knowledge graph' })).toHaveAttribute('href', '/graph')
+    expect(fetchDashboard).toHaveBeenCalledWith('web-development')
+    expect(screen.getByRole('heading', { level: 1, name: 'Web Development' })).toBeInTheDocument()
+    expect(screen.getByText('7 of 30 topics completed')).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Knowledge graph' })).toHaveAttribute(
+      'href',
+      '/domains/web-development/graph',
+    )
   })
 
   // Exit gate: no hard-coded numbers. Two different learners must produce different screens.
@@ -145,7 +156,8 @@ describe('up next', () => {
     await open(dashboard({ curriculum_complete: true, recommended: [] }))
     const next = region('Up next')
     expect(within(next).getByRole('heading', { name: "You've completed the Web Development curriculum" })).toBeInTheDocument()
-    expect(within(next).getByRole('link', { name: 'Open the knowledge graph' })).toHaveAttribute('href', '/graph')
+    expect(within(next).getByRole('link', { name: 'Open the knowledge graph' })).toHaveAttribute('href', '/domains/web-development/graph')
+    expect(within(next).getByRole('link', { name: 'Browse domains' })).toHaveAttribute('href', '/domains')
     expect(within(next).queryByRole('listitem')).not.toBeInTheDocument()
   })
 
@@ -233,10 +245,11 @@ describe('mastery overview', () => {
 })
 
 describe('onboarding', () => {
-  it('prompts a learner who has not onboarded', async () => {
+  it('prompts a learner who has not set up this domain', async () => {
     await open(dashboard({ onboarded: false }))
     expect(screen.getByRole('heading', { name: 'Already know some of this?' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Choose known topics' })).toHaveAttribute('href', '/onboarding')
+    expect(screen.getByText(/Tell us which Web Development topics you're comfortable with/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Choose known topics' })).toHaveAttribute('href', '/domains/web-development/onboarding')
   })
 
   it('no prompt once onboarded', async () => {
@@ -245,9 +258,60 @@ describe('onboarding', () => {
   })
 
   it('keeps the confirmation after onboarding alongside real data', async () => {
-    await open(dashboard(), { pathname: '/dashboard', state: { onboarding: { knownCount: 4, addedPrerequisites: ['HTML Basics'] } } })
+    await open(dashboard(), { pathname: '/domains/web-development', state: { onboarding: { knownCount: 4, addedPrerequisites: ['HTML Basics'] } } })
     expect(screen.getByText("You're all set")).toBeInTheDocument()
     expect(screen.getByText(/4 topics are marked as known/)).toBeInTheDocument()
     expect(region('Up next')).toBeInTheDocument()
+  })
+})
+
+describe('domains', () => {
+  it('switches between joined domains from the header, keeping the dashboard view', async () => {
+    const { user, router } = await open()
+    const switcher = screen.getByRole('button', { name: 'Web Development: switch domain' })
+    await user.click(switcher)
+    const menu = await screen.findByRole('menu')
+    // Joined domains, plus the current one (not joined here), each with its progress.
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['Foundations33%', 'Web Development3%', 'Browse all domains'])
+    expect(items[1]).toHaveAttribute('aria-current', 'page')
+    expect(items[0]).toHaveAttribute('href', '/domains/foundations')
+    expect(items[2]).toHaveAttribute('href', '/domains')
+
+    fetchDashboard.mockResolvedValue(dashboard({ domain: 'foundations', domain_name: 'Foundations' }))
+    await user.click(items[0])
+    expect(router.state.location.pathname).toBe('/domains/foundations')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Foundations' })).toBeInTheDocument()
+    expect(fetchDashboard).toHaveBeenLastCalledWith('foundations')
+  })
+
+  it("shows the next domain's loading state rather than the previous domain's data", async () => {
+    const { user } = await open()
+    const pending = deferred()
+    fetchDashboard.mockReturnValue(pending.promise)
+    await user.click(screen.getByRole('button', { name: 'Web Development: switch domain' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Foundations/ }))
+    expect(await screen.findByRole('status', { name: 'Loading your dashboard' })).toBeInTheDocument()
+    expect(screen.queryByText('7 of 30 topics completed')).not.toBeInTheDocument()
+    await act(async () => pending.resolve(dashboard({ domain: 'foundations', domain_name: 'Foundations' })))
+    expect(screen.getByRole('heading', { level: 1, name: 'Foundations' })).toBeInTheDocument()
+  })
+
+  it('the switcher says when the domains cannot be loaded, and still links to the catalogue', async () => {
+    fetchCatalogue.mockRejectedValue(httpError(503))
+    const { user } = await open()
+    await user.click(screen.getByRole('button', { name: 'Web Development: switch domain' }))
+    expect(await screen.findByRole('menuitem', { name: "Couldn't load your domains" })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('menuitem', { name: 'Browse all domains' })).toHaveAttribute('href', '/domains')
+  })
+
+  it('an unknown domain says so and links to the catalogue', async () => {
+    tokenStorage.set('jwt')
+    fetchCurrentUser.mockResolvedValue(LEARNER)
+    fetchDashboard.mockRejectedValue(httpError(404, "Unknown domain 'underwater-basket-weaving'"))
+    renderAt('/domains/underwater-basket-weaving')
+    expect(await screen.findByRole('heading', { level: 1, name: "We couldn't find that domain" })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Browse domains' })).toHaveAttribute('href', '/domains')
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
   })
 })

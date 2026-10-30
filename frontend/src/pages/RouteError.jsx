@@ -10,12 +10,12 @@ export default function RouteError() {
   return (
     <FullPageError
       title="This page hit a problem"
-      message="Reloading usually fixes it. If it keeps happening, go back to the dashboard."
+      message="Reloading usually fixes it. If it keeps happening, go back to your home page."
       onRetry={() => window.location.reload()}
       retryLabel="Reload"
       action={
-        <a href="/dashboard" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
-          Go to dashboard
+        <a href="/home" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+          Go to home
         </a>
       }
     />

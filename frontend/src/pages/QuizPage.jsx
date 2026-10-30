@@ -14,6 +14,7 @@ import { QuizReady } from '@/components/quiz/QuizReady'
 import { QuizResult } from '@/components/quiz/QuizResult'
 import { QuizRunner } from '@/components/quiz/QuizRunner'
 import { Button } from '@/components/ui/button'
+import { useBackLink } from '@/hooks/useBackLink'
 import { useQuizSession } from '@/hooks/useQuizSession'
 
 export default function QuizPage() {
@@ -26,6 +27,7 @@ export default function QuizPage() {
 
 function QuizFlow({ topicId }) {
   const session = useQuizSession(topicId)
+  const back = useBackLink()
   const { stage, graph, quiz, monitoring } = session
   const { setFocusMode } = useOutletContext() ?? {}
 
@@ -96,7 +98,7 @@ function QuizFlow({ topicId }) {
             description={`There's no topic called "${topicId}" in your curriculum.`}
             action={
               <Button asChild variant="outline">
-                <Link to="/dashboard">Back to dashboard</Link>
+                <Link to={back.to}>{back.label}</Link>
               </Button>
             }
           />

@@ -8,7 +8,7 @@ export function difficultyLabel(level) {
 
 const DOMAIN_NAMES = { 'web-development': 'Web Development' }
 
-/** The API identifies domains by slug ("web-development"); show a readable name. */
+/** A readable name from a domain's slug ("web-development"), for when the API's name isn't loaded yet. */
 export function domainLabel(slug = '') {
   return DOMAIN_NAMES[slug] ?? slug.split('-').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
@@ -62,6 +62,21 @@ export function topicAction(topic, { retry = false } = {}) {
   if (retry) return { label: 'Retry quiz', to }
   if (topic.status === 'in_progress') return { label: 'Continue', to }
   return { label: 'Start topic', to }
+}
+
+/**
+ * Topics whose next action is "Retry quiz": the learner's latest counted attempt on them failed,
+ * or they need attention. `attempts` are newest first.
+ */
+export function retryTopicIds(attempts, attention = []) {
+  const ids = new Set(attention.map((t) => t.id))
+  const seen = new Set()
+  for (const attempt of attempts) {
+    if (!attempt.counted || seen.has(attempt.topic_id)) continue
+    seen.add(attempt.topic_id)
+    if (!attempt.passed) ids.add(attempt.topic_id)
+  }
+  return ids
 }
 
 /** "A", "A and B", "A, B and 2 more" */

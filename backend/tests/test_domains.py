@@ -99,6 +99,32 @@ def test_graph_includes_shared_topics_and_lists_prerequisites_from_other_domains
 
 
 @pytest.mark.usefixtures("supported")
+def test_graph_names_its_domain_and_each_topics_home(client, make_user):
+    _, headers = make_user()
+    body = graph(client, headers, Y.id)
+    assert body["domain_name"] == "Pytest Y"
+    assert {"id": X.id, "name": "Pytest X"} in body["domains"]
+    assert {n["id"]: n["home_domain"] for n in body["nodes"]} == {X1.id: X.id, Y1.id: Y.id, Y2.id: Y.id}
+
+
+@pytest.mark.usefixtures("supported")
+def test_map_links_prerequisites_across_domains(client, make_user):
+    _, headers = make_user()
+    mark_known(client, headers, X.id, [X1.id])
+    body = client.get("/api/topics/map", headers=headers).json()
+    by_id = {n["id"]: n for n in body["nodes"]}
+
+    assert [d["id"] for d in body["domains"]][-3:] == [X.id, Y.id, Z.id]
+    links = {(link["source"], link["target"]) for link in body["links"]}
+    assert {(X1.id, X2.id), (X2.id, Y1.id), (Y1.id, Y2.id), (X2.id, Z1.id)} <= links
+    # A shared topic appears once, with every domain it belongs to.
+    assert [n["id"] for n in body["nodes"]].count(X1.id) == 1
+    assert (by_id[X1.id]["domains"], by_id[X1.id]["home_domain"]) == ([X.id, Y.id], X.id)
+    assert by_id[Y1.id]["prerequisites"] == [X2.id] and by_id[Y1.id]["external_prerequisites"] == []
+    assert [by_id[t]["status"] for t in (X1.id, X2.id, Y1.id)] == ["completed", "unlocked", "locked"]
+
+
+@pytest.mark.usefixtures("supported")
 def test_topic_list_of_a_domain_includes_its_shared_topics(client, make_user):
     _, headers = make_user()
     body = client.get("/api/topics/all", headers=headers, params={"domain": Y.id}).json()

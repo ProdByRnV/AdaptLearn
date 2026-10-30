@@ -10,7 +10,8 @@ import { LEARNER } from '@/test/helpers'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
 vi.mock('@/pages/GraphPage', () => ({
-  default: () => {
+  DomainGraphPage: () => null,
+  MapPage: () => {
     throw new Error('render failed')
   },
 }))
@@ -22,10 +23,10 @@ it('a page that crashes shows the error screen instead of a blank page', async (
   fetchCurrentUser.mockResolvedValue(LEARNER)
   render(
     <AuthProvider>
-      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/graph'] })} />
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/map'] })} />
     </AuthProvider>,
   )
   expect(await screen.findByRole('heading', { name: 'This page hit a problem' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Go to dashboard' })).toHaveAttribute('href', '/dashboard')
+  expect(screen.getByRole('link', { name: 'Go to home' })).toHaveAttribute('href', '/home')
 })

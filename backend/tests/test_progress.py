@@ -53,11 +53,12 @@ def test_dashboard_shape_matches_spec(client, make_user):
     _, headers = make_user()
     body = dashboard(client, headers)
 
-    # ARCHITECTURE 13.10 keys, plus domain/onboarded/curriculum_complete.
+    # ARCHITECTURE 13.10 keys, plus domain/domain_name/onboarded/curriculum_complete.
     assert set(body) == {
-        "domain", "onboarded", "curriculum_complete", "stats", "recommended", "needs_attention",
+        "domain", "domain_name", "onboarded", "curriculum_complete", "stats", "recommended", "needs_attention",
         "recent_attempts", "mastery",
     }
+    assert body["domain_name"] == "Web Development"
     assert {"total_topics", "completed_topics", "mastered_topics", "average_mastery", "total_attempts"} <= set(
         body["stats"]
     )

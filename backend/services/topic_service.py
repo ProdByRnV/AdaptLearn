@@ -165,9 +165,26 @@ def build_graph(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> dict
     Prerequisites from other domains aren't drawn as links (their topics aren't nodes of this
     graph); they are listed per node in external_prerequisites instead.
     """
-    topics = get_topics(domain)
+    nodes, links = _graph(get_topics(domain), get_progress_map(db, user_id))
+    return {
+        "domain": domain, "domain_name": domain_name(domain), "domains": domain_refs(), "nodes": nodes, "links": links,
+    }
+
+
+def build_map(db: Session, user_id: int) -> dict[str, Any]:
+    """Every topic in every domain, each once, with every prerequisite as a link (the whole map)."""
+    nodes, links = _graph(get_all_topics(), get_progress_map(db, user_id))
+    return {"domains": domain_refs(), "nodes": nodes, "links": links}
+
+
+def domain_refs() -> list[dict[str, str]]:
+    """Every supported domain's id and name, in curriculum order."""
+    return [{"id": d, "name": domain_name(d)} for d in SUPPORTED_DOMAINS]
+
+
+def _graph(topics: list[TopicInfo], progress: dict[str, TopicProgress]) -> tuple[list[dict], list[dict]]:
+    """Nodes with the learner's status, and links between topics that are both in `topics`."""
     in_domain = {t.id for t in topics}
-    progress = get_progress_map(db, user_id)
     nodes, links = [], []
     for topic in topics:
         status, p_know = effective_state(topic, progress)
@@ -197,8 +214,9 @@ def build_graph(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> dict
                 "prerequisites": internal,
                 "external_prerequisites": external,
                 "domains": topic.domains,
+                "home_domain": topic.home_domain,
                 "resources": topic.resources,
             }
         )
         links.extend({"source": pre_id, "target": topic.id} for pre_id in internal)
-    return {"domain": domain, "nodes": nodes, "links": links}
+    return nodes, links

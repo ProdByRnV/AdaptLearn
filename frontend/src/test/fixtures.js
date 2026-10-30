@@ -1,5 +1,5 @@
 // A small slice of the real curriculum, in the API's order (difficulty, then name).
-const topic = (id, name, difficulty, prerequisites, status = prerequisites.length ? 'locked' : 'unlocked') => ({
+const topic = (id, name, difficulty, prerequisites, status = prerequisites.length ? 'locked' : 'unlocked', domain = 'web-development') => ({
   id,
   name,
   description: `What ${name} covers.`,
@@ -8,8 +8,16 @@ const topic = (id, name, difficulty, prerequisites, status = prerequisites.lengt
   mastery: 10,
   mastered: false,
   prerequisites,
+  external_prerequisites: [],
+  domains: [domain],
+  home_domain: domain,
   resources: [],
 })
+
+export const DOMAINS = [
+  { id: 'foundations', name: 'Foundations' },
+  { id: 'web-development', name: 'Web Development' },
+]
 
 const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString()
 
@@ -17,6 +25,7 @@ const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60_000).toISOStr
 export function dashboard(overrides = {}) {
   const base = {
     domain: 'web-development',
+    domain_name: 'Web Development',
     onboarded: true,
     curriculum_complete: false,
     stats: {
@@ -81,8 +90,11 @@ export function dashboard(overrides = {}) {
   return { ...base, ...overrides, stats: { ...base.stats, ...overrides.stats } }
 }
 
-export function topicGraph({ completed = [] } = {}) {
-  const nodes = [
+const markCompleted = (completed) => (t) =>
+  completed.includes(t.id) ? { ...t, status: 'completed', mastery: 95, mastered: true } : t
+
+function webDevelopmentTopics() {
+  return [
     topic('css_basics', 'CSS Basics', 1, ['html_basics']),
     topic('html_basics', 'HTML Basics', 1, []),
     topic('javascript_fundamentals', 'JavaScript Fundamentals', 1, ['html_basics']),
@@ -92,9 +104,132 @@ export function topicGraph({ completed = [] } = {}) {
     topic('react_hooks', 'React Hooks', 3, ['props_state']),
     topic('react_router', 'React Router', 3, ['react_fundamentals']),
     topic('deployment_basics', 'Deployment Basics', 4, ['react_router']),
-  ].map((t) => (completed.includes(t.id) ? { ...t, status: 'completed', mastery: 95, mastered: true } : t))
+  ]
+}
+
+/**
+ * A /topics/graph response for Web Development. Deployment Basics also needs Command Line, from
+ * Foundations, which isn't a node here: it is listed in external_prerequisites.
+ */
+export function topicGraph({ completed = [] } = {}) {
+  const nodes = webDevelopmentTopics().map(markCompleted(completed))
+  const deployment = nodes.find((t) => t.id === 'deployment_basics')
+  deployment.external_prerequisites = [
+    { id: 'command_line', name: 'Command Line', domain: 'foundations', domain_name: 'Foundations', completed: completed.includes('command_line') },
+  ]
   const links = nodes.flatMap((t) => t.prerequisites.map((source) => ({ source, target: t.id })))
-  return { domain: 'web-development', nodes, links }
+  return { domain: 'web-development', domain_name: 'Web Development', domains: DOMAINS, nodes, links }
+}
+
+/**
+ * A /topics/map response: Foundations (Command Line, then Git Basics, which Web Development shares)
+ * and the Web Development topics above, where Deployment Basics needs Command Line.
+ */
+export function topicMap({ completed = [] } = {}) {
+  const foundations = [
+    topic('command_line', 'Command Line', 1, [], undefined, 'foundations'),
+    { ...topic('git_basics', 'Git Basics', 1, ['command_line'], undefined, 'foundations'), domains: ['foundations', 'web-development'] },
+  ]
+  const web = webDevelopmentTopics().map((t) =>
+    t.id === 'deployment_basics' ? { ...t, prerequisites: ['react_router', 'command_line'] } : t,
+  )
+  const nodes = [...foundations, ...web]
+    .map(markCompleted(completed))
+    .sort((a, b) => a.difficulty - b.difficulty || a.name.localeCompare(b.name))
+  const links = nodes.flatMap((t) => t.prerequisites.map((source) => ({ source, target: t.id })))
+  return { domains: DOMAINS, nodes, links }
+}
+
+/** A domain in the /domains catalogue. Override any part. */
+export function domainSummary(overrides = {}) {
+  return {
+    id: 'web-development',
+    name: 'Web Development',
+    description: 'Build websites and web apps, from HTML to deployment.',
+    total_topics: 30,
+    completed_topics: 0,
+    in_progress_topics: 0,
+    available_topics: 4,
+    progress_percent: 0,
+    curriculum_complete: false,
+    joined: false,
+    joined_at: null,
+    onboarded: false,
+    known_topics: [],
+    ready_topics: [],
+    suggested: false,
+    ...overrides,
+  }
+}
+
+/** A /domains response: Foundations (joined and set up) and Web Development (a head start through Git Basics). */
+export function catalogue() {
+  return {
+    domains: [
+      domainSummary({
+        id: 'foundations', name: 'Foundations', description: 'The tools every programmer uses.',
+        total_topics: 3, completed_topics: 1, available_topics: 2, progress_percent: 33.3,
+        joined: true, joined_at: '2026-10-01T10:00:00Z', onboarded: true,
+        known_topics: [{ id: 'git_basics', name: 'Git Basics' }],
+      }),
+      domainSummary({
+        completed_topics: 1, progress_percent: 3.3, suggested: true,
+        known_topics: [{ id: 'git_basics', name: 'Git Basics' }],
+        ready_topics: [{ id: 'github_collaboration', name: 'GitHub Collaboration' }],
+      }),
+    ],
+  }
+}
+
+/** A /home response for a learner set up in two domains that share Git Basics. Override any part. */
+export function home(overrides = {}) {
+  const base = {
+    domains: [
+      {
+        ...domainSummary({
+          id: 'foundations', name: 'Foundations', total_topics: 3, completed_topics: 1, progress_percent: 33.3,
+          joined: true, joined_at: '2026-10-01T10:00:00Z', onboarded: true,
+        }),
+        up_next: {
+          id: 'command_line', name: 'Command Line', description: 'Working in a terminal.', difficulty: 1,
+          status: 'unlocked', mastery: 10, prerequisites: [], prerequisite_names: [],
+        },
+      },
+      {
+        ...domainSummary({
+          completed_topics: 1, progress_percent: 3.3, joined: true, joined_at: '2026-10-02T10:00:00Z', onboarded: true,
+        }),
+        up_next: {
+          id: 'html_basics', name: 'HTML Basics', description: 'Structuring pages.', difficulty: 1,
+          status: 'unlocked', mastery: 10, prerequisites: [], prerequisite_names: [],
+        },
+      },
+    ],
+    up_next: [
+      {
+        id: 'command_line', name: 'Command Line', description: 'Working in a terminal.', difficulty: 1,
+        status: 'unlocked', mastery: 10, prerequisites: [], prerequisite_names: [], domains: ['foundations'],
+      },
+      {
+        id: 'git_basics', name: 'Git Basics', description: 'Version control with Git.', difficulty: 1,
+        status: 'in_progress', mastery: 40, prerequisites: ['command_line'], prerequisite_names: ['Command Line'],
+        domains: ['foundations', 'web-development'],
+      },
+      {
+        id: 'html_basics', name: 'HTML Basics', description: 'Structuring pages.', difficulty: 1,
+        status: 'unlocked', mastery: 10, prerequisites: [], prerequisite_names: [], domains: ['web-development'],
+      },
+    ],
+    suggestions: [],
+    recent_attempts: [
+      {
+        id: 3, topic_id: 'git_basics', topic_name: 'Git Basics', score: 1, total: 3, passed: false,
+        mastery_before: 42, mastery_after: 40, created_at: minutesAgo(2), counted: true,
+        integrity_verdict: 'verified', integrity_score: 100,
+      },
+    ],
+  }
+  return { ...base, ...overrides }
 }
 
 const RULES = [

@@ -4,14 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { registerRequest } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
-import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
+import { fetchCatalogue, fetchHome } from '@/api/domains'
+import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
 import { deferred, httpError, networkError } from '@/test/helpers'
 import { fetchDashboard } from '@/api/progress'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchTopicGraph: vi.fn(), fetchTopicMap: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/domains', () => ({ fetchCatalogue: vi.fn(), fetchHome: vi.fn(), joinDomain: vi.fn() }))
 
 const NEW_USER = { id: 12, username: 'New Learner', email: 'new@example.com' }
 const session = { access_token: 'jwt-new', token_type: 'bearer', user: NEW_USER }
@@ -36,9 +38,12 @@ async function open() {
 beforeEach(() => {
   // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
   fetchDashboard.mockReturnValue(new Promise(() => {}))
-  // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
+  // The catalogue's own behaviour is tested in Domains.test.jsx; here it just stays loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
-  fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: false, curriculum_complete: false, recommended: [] })
+  fetchTopicMap.mockReturnValue(new Promise(() => {}))
+  fetchCatalogue.mockReturnValue(new Promise(() => {}))
+  // A new account has joined no domain yet.
+  fetchHome.mockResolvedValue({ domains: [], up_next: [], suggestions: [], recent_attempts: [] })
 })
 
 describe('form', () => {
@@ -91,7 +96,7 @@ describe('form', () => {
 })
 
 describe('creating the account', () => {
-  it('sends trimmed username and email with the exact password, then opens onboarding', async () => {
+  it('sends trimmed username and email with the exact password, then opens the catalogue to choose a domain', async () => {
     registerRequest.mockResolvedValue(session)
     const { user, router } = await open()
     await fill(user, { username: '  New Learner ', email: ' new@example.com ', password: ' Strong Password ' })
@@ -101,8 +106,8 @@ describe('creating the account', () => {
       email: 'new@example.com',
       password: ' Strong Password ',
     })
-    await screen.findByRole('heading', { name: 'What do you already know?' })
-    expect(router.state.location.pathname).toBe('/onboarding')
+    await screen.findByRole('heading', { level: 1, name: 'Domains' })
+    expect(router.state.location.pathname).toBe('/domains')
     expect(tokenStorage.get()).toBe('jwt-new')
     expect(screen.getByRole('button', { name: /account menu/ })).toHaveTextContent('New Learner')
   })
@@ -118,7 +123,7 @@ describe('creating the account', () => {
     await user.click(busy)
     expect(registerRequest).toHaveBeenCalledTimes(1)
     await act(async () => pending.resolve(session))
-    await screen.findByRole('heading', { name: 'What do you already know?' })
+    await screen.findByRole('heading', { level: 1, name: 'Domains' })
   })
 })
 
@@ -158,13 +163,13 @@ describe('failures', () => {
   })
 })
 
-it('a remembered page does not skip onboarding for a new account', async () => {
+it('a remembered page does not skip choosing a domain for a new account', async () => {
   registerRequest.mockResolvedValue(session)
   const user = userEvent.setup()
   const { router } = renderAt('/quiz/css_basics')
   await user.click(await screen.findByRole('link', { name: 'Create an account' }))
   await fill(user)
   await user.click(submit())
-  await screen.findByRole('heading', { name: 'What do you already know?' })
-  expect(router.state.location.pathname).toBe('/onboarding')
+  await screen.findByRole('heading', { level: 1, name: 'Domains' })
+  expect(router.state.location.pathname).toBe('/domains')
 })

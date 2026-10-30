@@ -6,13 +6,14 @@ import { fetchCurrentUser } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
 import { fetchDashboard } from '@/api/progress'
 import { answerQuestion, fetchActiveQuiz, generateQuiz, nextQuestion, reportEvents, submitQuiz } from '@/api/quiz'
-import { fetchTopicGraph } from '@/api/topics'
-import { quizInfo, quizQuestion, quizResult, topicGraph } from '@/test/fixtures'
+import { fetchTopicMap } from '@/api/topics'
+import { quizInfo, quizQuestion, quizResult, topicMap } from '@/test/fixtures'
 import { httpError, LEARNER, networkError } from '@/test/helpers'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchTopicGraph: vi.fn(), fetchTopicMap: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/domains', () => ({ fetchCatalogue: vi.fn(), fetchHome: vi.fn(), joinDomain: vi.fn() }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
 vi.mock('@/api/quiz', () => ({
   generateQuiz: vi.fn(),
@@ -39,7 +40,7 @@ beforeEach(() => {
   document.exitFullscreen = vi.fn(async () => setFullscreen(false))
   tokenStorage.set('jwt')
   fetchCurrentUser.mockResolvedValue(LEARNER)
-  fetchTopicGraph.mockResolvedValue(topicGraph())
+  fetchTopicMap.mockResolvedValue(topicMap())
   fetchActiveQuiz.mockResolvedValue(null)
   fetchDashboard.mockReturnValue(new Promise(() => {}))
   generateQuiz.mockResolvedValue(quizInfo())
@@ -127,7 +128,7 @@ describe('before the quiz', () => {
   it('says when the topic does not exist', async () => {
     await open('quantum_basics')
     expect(screen.getByRole('heading', { name: 'Topic not found' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Back to dashboard' })).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByRole('link', { name: 'Back to home' })).toHaveAttribute('href', '/home')
   })
 
   it('offers a retry when the page cannot load', async () => {
@@ -524,7 +525,7 @@ describe('leaving mid-quiz', () => {
     const { user, router } = await open()
     await startQuiz(user)
     act(() => {
-      router.navigate('/dashboard')
+      router.navigate('/home')
     })
     const dialog = await screen.findByRole('alertdialog', { name: 'Leave the quiz?' })
     await user.click(within(dialog).getByRole('button', { name: 'Stay in the quiz' }))
@@ -533,10 +534,10 @@ describe('leaving mid-quiz', () => {
     expect(screen.getByRole('heading', { name: 'Question text 1?' })).toBeInTheDocument()
 
     act(() => {
-      router.navigate('/dashboard')
+      router.navigate('/home')
     })
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Leave' }))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/home'))
     expect(document.exitFullscreen).toHaveBeenCalled()
   })
 
@@ -578,7 +579,7 @@ describe('the result', () => {
     expect(screen.queryByRole('region', { name: 'Review before trying again' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Start topic: CSS Basics' })).toHaveAttribute('href', '/quiz/css_basics')
-    expect(screen.getByRole('link', { name: 'Back to dashboard' })).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByRole('link', { name: 'Back to home' })).toHaveAttribute('href', '/home')
   })
 
   it('shows resources and a retry after a failed quiz', async () => {
@@ -705,5 +706,41 @@ describe('code in questions', () => {
     await screen.findByRole('heading', { name: 'You passed' })
     expect(screen.getByText(/let count = 0;/, { selector: 'code' })).toBeInTheDocument()
     expect(screen.getByText('0', { selector: 'p code' })).toBeInTheDocument()
+  })
+})
+
+describe('domains', () => {
+  it('finds a topic that only another domain has', async () => {
+    await open('command_line')
+    expect(screen.getByRole('heading', { level: 1, name: 'Command Line quiz' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Prepare quiz' })).toBeInTheDocument()
+  })
+
+  it('a locked topic lists every missing prerequisite, whichever domain it is in', async () => {
+    await open('deployment_basics')
+    expect(screen.getByText(/Complete React Router and Command Line first\./)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/domains/web-development', 'Back to dashboard'],
+    ['/domains/web-development/graph?topic=html_basics', 'Back to the knowledge graph'],
+    ['/map', 'Back to the knowledge graph'],
+    ['/home', 'Back to home'],
+  ])('leads back to the page it was opened from (%s)', async (from, label) => {
+    const user = userEvent.setup()
+    renderAt({ pathname: '/quiz/html_basics', state: { from } })
+    await screen.findByRole('heading', { level: 1 })
+    await takeWholeQuiz(user)
+    expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', from)
+  })
+
+  it('keeps the way back when moving on to the next topic from the result', async () => {
+    const user = userEvent.setup()
+    const { router } = renderAt({ pathname: '/quiz/html_basics', state: { from: '/domains/web-development' } })
+    await screen.findByRole('heading', { level: 1 })
+    await takeWholeQuiz(user)
+    await user.click(screen.getByRole('link', { name: 'Start topic: CSS Basics' }))
+    expect(router.state.location.pathname).toBe('/quiz/css_basics')
+    expect(router.state.location.state).toEqual({ from: '/domains/web-development' })
   })
 })

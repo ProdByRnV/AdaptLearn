@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchCurrentUser, loginRequest } from '@/api/auth'
 import api, { tokenStorage } from '@/api/client'
-import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
+import { fetchCatalogue, fetchHome } from '@/api/domains'
+import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
+import { home } from '@/test/fixtures'
 import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
 import { fetchDashboard } from '@/api/progress'
 import { fetchActiveQuiz } from '@/api/quiz'
@@ -16,7 +18,8 @@ vi.mock('@/api/auth', () => ({
   registerRequest: vi.fn(),
 }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchTopicGraph: vi.fn(), fetchTopicMap: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/domains', () => ({ fetchCatalogue: vi.fn(), fetchHome: vi.fn(), joinDomain: vi.fn() }))
 vi.mock('@/api/quiz', () => ({ fetchActiveQuiz: vi.fn(), generateQuiz: vi.fn(), nextQuestion: vi.fn(), answerQuestion: vi.fn(), reportEvents: vi.fn(), submitQuiz: vi.fn() }))
 
 const renderAt = (entry) => mount(entry).router
@@ -31,12 +34,18 @@ beforeEach(() => {
   fetchDashboard.mockReturnValue(new Promise(() => {}))
   // The quiz page's own behaviour is tested in QuizPage.test.jsx; here it just stays loading.
   fetchActiveQuiz.mockReturnValue(new Promise(() => {}))
-  // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
+  // The graph, map, onboarding and catalogue pages are tested in their own files; here they stay loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
-  fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: true, curriculum_complete: false, recommended: [] })
+  fetchTopicMap.mockReturnValue(new Promise(() => {}))
+  fetchCatalogue.mockReturnValue(new Promise(() => {}))
+  // A learner with domains: signing in lands on the home page.
+  fetchHome.mockResolvedValue(home())
 })
 
-const PROTECTED = ['/', '/onboarding', '/dashboard', '/quiz/css_basics', '/graph']
+const WEB = '/domains/web-development'
+const NO_DOMAINS = { domains: [], up_next: [], suggestions: [], recent_attempts: [] }
+
+const PROTECTED = ['/', '/home', '/domains', WEB, `${WEB}/graph`, `${WEB}/onboarding`, '/map', '/quiz/css_basics']
 
 describe('signed out', () => {
   it.each(PROTECTED)('%s redirects to /login', async (path) => {
@@ -72,10 +81,13 @@ describe('signed out', () => {
 
 describe('signed in', () => {
   it.each([
-    ['/dashboard', 'Welcome back, Puja Sharma'],
-    ['/onboarding', 'What do you already know?'],
+    ['/home', 'Welcome back, Puja Sharma'],
+    ['/domains', 'Domains'],
+    [WEB, 'Web Development'],
+    [`${WEB}/graph`, 'Knowledge graph'],
+    [`${WEB}/onboarding`, 'What do you already know?'],
+    ['/map', 'Full map'],
     ['/quiz/css_basics', 'Quiz'],
-    ['/graph', 'Knowledge graph'],
   ])('%s renders inside the app shell', async (path, heading) => {
     signedIn()
     renderAt(path)
@@ -85,70 +97,91 @@ describe('signed in', () => {
     expect(screen.getByRole('button', { name: 'Puja Sharma account menu' })).toBeInTheDocument()
   })
 
-  it.each(['/', '/login', '/register'])('%s sends an onboarded learner to the dashboard', async (path) => {
+  it.each(['/', '/login', '/register'])('%s sends a learner with a domain to their home page', async (path) => {
     signedIn()
     const router = renderAt(path)
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
-    expect(router.state.location.pathname).toBe('/dashboard')
+    expect(router.state.location.pathname).toBe('/home')
   })
 
-  it.each(['/', '/login', '/register'])('%s sends a learner who has not onboarded to onboarding', async (path) => {
+  it.each(['/', '/login', '/register'])('%s sends a learner without a domain to the catalogue', async (path) => {
     signedIn()
-    fetchLearningPath.mockResolvedValue({ domain: 'Web Development', onboarded: false, curriculum_complete: false, recommended: [] })
+    fetchHome.mockResolvedValue(NO_DOMAINS)
     const router = renderAt(path)
-    await screen.findByRole('heading', { name: 'What do you already know?' })
-    expect(router.state.location.pathname).toBe('/onboarding')
+    await screen.findByRole('heading', { level: 1, name: 'Domains' })
+    expect(router.state.location.pathname).toBe('/domains')
   })
 
-  it('falls back to the dashboard if the learning path cannot be loaded', async () => {
+  it('falls back to the home page if it cannot tell', async () => {
     signedIn()
-    fetchLearningPath.mockRejectedValue(httpError(503, 'Curriculum service is temporarily unavailable.'))
+    fetchHome.mockRejectedValue(httpError(503, 'Curriculum service is temporarily unavailable.'))
     const router = renderAt('/')
-    await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
-    expect(router.state.location.pathname).toBe('/dashboard')
+    await screen.findByRole('heading', { name: "Couldn't load your home page" })
+    expect(router.state.location.pathname).toBe('/home')
   })
 
   it('shows a loader while deciding where to go', async () => {
     signedIn()
-    const path = deferred()
-    fetchLearningPath.mockReturnValue(path.promise)
+    const landing = deferred()
+    fetchHome.mockReturnValueOnce(landing.promise)
     renderAt('/')
     expect(await screen.findByText('Getting things ready…', { selector: 'p' })).toBeInTheDocument()
-    await act(async () => path.resolve({ onboarded: true }))
-    expect(screen.getByRole('heading', { name: 'Welcome back, Puja Sharma' })).toBeInTheDocument()
+    await act(async () => landing.resolve(home()))
+    expect(await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })).toBeInTheDocument()
   })
 
-  it('returns to the remembered page after signing in, without asking for the learning path', async () => {
+  it('returns to the remembered page after signing in, without deciding where to land', async () => {
     signedIn()
     const router = renderAt({ pathname: '/login', state: { from: { pathname: '/quiz/css_basics', search: '' } } })
     await screen.findByRole('heading', { name: 'Quiz' })
     expect(router.state.location.pathname).toBe('/quiz/css_basics')
-    expect(fetchLearningPath).not.toHaveBeenCalled()
+    expect(fetchHome).not.toHaveBeenCalled()
   })
 
-  it('marks the active nav link', async () => {
+  it.each([
+    ['/home', 'Welcome back, Puja Sharma', 'Home'],
+    ['/map', 'Full map', 'Full map'],
+    ['/domains', 'Domains', 'Domains'],
+    // A domain's own pages belong to Domains.
+    [`${WEB}/graph`, 'Knowledge graph', 'Domains'],
+  ])('marks the active nav link on %s', async (path, heading, active) => {
     signedIn()
-    renderAt('/graph')
-    await screen.findByRole('heading', { name: 'Knowledge graph' })
-    expect(screen.getByRole('link', { name: 'Knowledge graph' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current')
+    renderAt(path)
+    await screen.findByRole('heading', { level: 1, name: heading })
+    const nav = screen.getByRole('navigation', { name: 'Main' })
+    const current = within(nav).getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page')
+    expect(current.map((a) => a.textContent)).toEqual([active])
   })
 
-  it('navigates with the navbar', async () => {
+  it('navigates with the navbar, and the logo goes home', async () => {
     signedIn()
     const user = userEvent.setup()
-    const router = renderAt('/dashboard')
+    const router = renderAt('/home')
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
     const nav = screen.getByRole('navigation', { name: 'Main' })
-    await user.click(within(nav).getByRole('link', { name: 'Knowledge graph' }))
-    expect(router.state.location.pathname).toBe('/graph')
-    expect(screen.getByRole('heading', { level: 1, name: 'Knowledge graph' })).toBeInTheDocument()
+    await user.click(within(nav).getByRole('link', { name: 'Full map' }))
+    expect(router.state.location.pathname).toBe('/map')
+    expect(screen.getByRole('heading', { level: 1, name: 'Full map' })).toBeInTheDocument()
+    await user.click(within(nav).getByRole('link', { name: 'Domains' }))
+    expect(router.state.location.pathname).toBe('/domains')
+    await user.click(screen.getByRole('link', { name: 'AdaptLearn home' }))
+    expect(router.state.location.pathname).toBe('/home')
+  })
+
+  it.each([
+    ['/dashboard', '/home'],
+    ['/onboarding', '/domains'],
+    ['/graph?topic=css_basics', '/map?topic=css_basics'],
+  ])('the old address %s now opens %s', async (from, to) => {
+    signedIn()
+    const router = renderAt(from)
+    await waitFor(() => expect(`${router.state.location.pathname}${router.state.location.search}`).toBe(to))
   })
 
   it('logs out from the account menu', async () => {
     signedIn()
     const user = userEvent.setup()
-    const router = renderAt('/dashboard')
+    const router = renderAt('/home')
     await user.click(await screen.findByRole('button', { name: /account menu/ }))
     expect(await screen.findByText('puja@example.com')).toBeInTheDocument()
     await user.click(screen.getByRole('menuitem', { name: 'Log out' }))
@@ -162,7 +195,7 @@ describe('signed in', () => {
     signedIn()
     loginRequest.mockResolvedValue({ access_token: 'jwt-2', token_type: 'bearer', user: LEARNER })
     const user = userEvent.setup()
-    const router = renderAt('/graph')
+    const router = renderAt('/map')
     await user.click(await screen.findByRole('button', { name: /account menu/ }))
     await user.click(await screen.findByRole('menuitem', { name: 'Log out' }))
     await screen.findByRole('heading', { name: 'Welcome back' })
@@ -172,13 +205,13 @@ describe('signed in', () => {
     await user.type(screen.getByLabelText('Password'), 'StrongPassword123')
     await user.click(screen.getByRole('button', { name: 'Log in' }))
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
-    expect(router.state.location.pathname).toBe('/dashboard')
+    expect(router.state.location.pathname).toBe('/home')
   })
 
   it('logging out in another tab does not remember the page either', async () => {
     signedIn()
-    const router = renderAt('/graph')
-    await screen.findByRole('heading', { name: 'Knowledge graph' })
+    const router = renderAt('/map')
+    await screen.findByRole('heading', { name: 'Full map' })
     localStorage.removeItem('adaptlearn.token')
     act(() => {
       window.dispatchEvent(new StorageEvent('storage', { key: 'adaptlearn.token', oldValue: 'jwt-123', newValue: null }))
@@ -193,7 +226,7 @@ describe('checking the session', () => {
     tokenStorage.set('jwt-123')
     const me = deferred()
     fetchCurrentUser.mockReturnValue(me.promise)
-    renderAt('/dashboard')
+    renderAt('/home')
     expect(screen.getByRole('status')).toHaveTextContent('Checking your session…')
     await act(async () => me.resolve(LEARNER))
     expect(screen.getByRole('heading', { name: 'Welcome back, Puja Sharma' })).toBeInTheDocument()
@@ -203,21 +236,21 @@ describe('checking the session', () => {
     tokenStorage.set('jwt-123')
     fetchCurrentUser.mockRejectedValueOnce(networkError())
     const user = userEvent.setup()
-    const router = renderAt('/graph')
+    const router = renderAt('/map')
     expect(await screen.findByRole('heading', { name: "Couldn't restore your session" })).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/graph')
+    expect(router.state.location.pathname).toBe('/map')
     expect(tokenStorage.get()).toBe('jwt-123')
 
     fetchCurrentUser.mockResolvedValueOnce(LEARNER)
     await user.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('heading', { name: 'Knowledge graph' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Full map' })).toBeInTheDocument()
   })
 
   it('the startup error page is branded and offers a way to log out', async () => {
     tokenStorage.set('jwt-123')
     fetchCurrentUser.mockRejectedValueOnce(httpError(503, 'Database is temporarily unavailable. Please try again shortly.'))
     const user = userEvent.setup()
-    const router = renderAt('/dashboard')
+    const router = renderAt('/home')
     expect(await screen.findByRole('heading', { level: 1, name: "Couldn't restore your session" })).toBeInTheDocument()
     expect(screen.getByText('Database is temporarily unavailable. Please try again shortly.')).toBeInTheDocument()
     expect(screen.getByText('AdaptLearn')).toBeInTheDocument()
@@ -230,13 +263,13 @@ describe('checking the session', () => {
 
   it('an expired session mid-use returns to login with an explanation', async () => {
     signedIn()
-    const router = renderAt('/dashboard')
+    const router = renderAt('/home')
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
     fakeServer(401, { detail: 'Could not validate credentials' })
-    await act(() => api.get('/progress/dashboard').catch(() => {}))
+    await act(() => api.get('/home').catch(() => {}))
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
     expect(screen.getByRole('alert')).toHaveTextContent('Your session has expired')
-    expect(router.state.location.state.from.pathname).toBe('/dashboard')
+    expect(router.state.location.state.from.pathname).toBe('/home')
   })
 })
 
@@ -248,9 +281,9 @@ describe('unknown pages', () => {
     expect(screen.getByRole('link', { name: 'Go to login' })).toHaveAttribute('href', '/login')
   })
 
-  it('signed in: 404 with a link to the dashboard', async () => {
+  it('signed in: 404 with a link to the home page', async () => {
     signedIn()
     renderAt('/quiz')
-    expect(await screen.findByRole('link', { name: 'Go to dashboard' })).toHaveAttribute('href', '/dashboard')
+    expect(await screen.findByRole('link', { name: 'Go to home' })).toHaveAttribute('href', '/home')
   })
 })

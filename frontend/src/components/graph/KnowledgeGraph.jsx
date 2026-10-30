@@ -1,12 +1,15 @@
 import { Maximize2, Minus, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { forceCollide } from 'd3-force-3d'
+import { forceCollide, forceY } from 'd3-force-3d'
 import ForceGraph2D from 'react-force-graph-2d'
 
 import { Button } from '@/components/ui/button'
 import {
+  BAND_STRENGTH,
+  bandRows,
   endId,
   NODE_RADIUS,
+  paintGroups,
   paintNode,
   paintNodeArea,
   readPalette,
@@ -26,8 +29,11 @@ const FIT_PADDING = 64
  * The curriculum as a directed graph (canvas, via react-force-graph-2d). Laid out left to right by
  * prerequisite depth, with arrows from each prerequisite to the topic it unlocks. Drag to pan,
  * scroll or pinch to zoom, or use the buttons. Loaded on demand: the library is only needed here.
+ *
+ * With `groups` (the whole map's domains), each topic is pulled into its home domain's band and
+ * every domain's area is drawn behind its topics.
  */
-export default function KnowledgeGraph({ data, selectedId, onSelect, width, height }) {
+export default function KnowledgeGraph({ data, groups = null, selectedId, onSelect, width, height }) {
   const graphRef = useRef(null)
   const fitted = useRef(false)
   const palette = useMemo(() => readPalette(), [])
@@ -38,8 +44,12 @@ export default function KnowledgeGraph({ data, selectedId, onSelect, width, heig
     if (!graph) return
     graph.d3Force('collide', forceCollide(COLLIDE_RADIUS))
     graph.d3Force('charge')?.strength(-90)
+    if (groups) {
+      const rows = bandRows(data.nodes, groups)
+      graph.d3Force('band', forceY((node) => rows.get(node.id) ?? 0).strength(BAND_STRENGTH))
+    }
     graph.d3ReheatSimulation()
-  }, [])
+  }, [groups, data])
 
   // Centre the selected topic once it has a position.
   useEffect(() => {
@@ -53,13 +63,14 @@ export default function KnowledgeGraph({ data, selectedId, onSelect, width, heig
   )
 
   // The first view, once the layout has settled: the whole graph if it is readable, else the start
-  // of it; a topic opened from a link (?topic=) is centred instead.
+  // of it; a topic opened from a link (?topic=) is centred instead. The whole map always starts
+  // fitted: zoomed out, it reads as its domains.
   const showStart = () => {
     const graph = graphRef.current
     if (!graph) return
     const view = startView(graph.getGraphBbox(), width, height, FIT_PADDING)
     const selected = data.nodes.find((n) => n.id === selectedId)
-    if (view.fit && !selected) return graph.zoomToFit(400, FIT_PADDING)
+    if ((view.fit || groups) && !selected) return graph.zoomToFit(400, FIT_PADDING)
     graph.zoom(view.fit ? graph.zoom() : view.scale, 400)
     graph.centerAt(selected?.x ?? view.x, selected?.y ?? view.y, 400)
   }
@@ -83,6 +94,7 @@ export default function KnowledgeGraph({ data, selectedId, onSelect, width, heig
         nodeRelSize={NODE_RADIUS}
         nodeVal={(node) => (node.id === selectedId ? (SELECTED_RADIUS / NODE_RADIUS) ** 2 : 1)}
         nodeLabel={() => ''}
+        onRenderFramePre={groups ? (ctx, scale) => paintGroups(ctx, scale, data.nodes, groups, palette) : undefined}
         nodeCanvasObject={(node, ctx, scale) => paintNode(node, ctx, scale, { palette, selectedId, related })}
         nodePointerAreaPaint={(node, color, ctx, scale) => paintNodeArea(node, color, ctx, selectedId, scale)}
         linkColor={(link) => (linkActive(link) ? palette.primary : palette.link)}

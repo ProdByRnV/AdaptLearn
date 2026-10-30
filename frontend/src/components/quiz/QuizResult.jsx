@@ -15,10 +15,12 @@ import { cn } from 'cn'
 import { ProgressBar } from '@/components/common/ProgressBar'
 import { RecommendedTopicCard } from '@/components/dashboard/RecommendedTopicCard'
 import { QuizText } from '@/components/quiz/QuizText'
+import { QuizLink } from '@/components/topics/QuizLink'
 import { ResourceList } from '@/components/topics/ResourceList'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { useBackLink } from '@/hooks/useBackLink'
 import { formatPercent } from '@/lib/format'
 
 const LETTERS = ['A', 'B', 'C', 'D']
@@ -30,6 +32,7 @@ const LETTERS = ['A', 'B', 'C', 'D']
  */
 export function QuizResult({ result, topicName, threshold, topicNames, onRetry }) {
   const headingRef = useRef(null)
+  const back = useBackLink()
   const { counted } = result.integrity
   const before = result.p_know_before * 100
   const after = result.p_know_after * 100
@@ -98,13 +101,13 @@ export function QuizResult({ result, topicName, threshold, topicNames, onRetry }
           <ul className="flex flex-wrap gap-2">
             {result.newly_unlocked.map((id) => (
               <li key={id}>
-                <Link
+                <QuizLink
                   to={`/quiz/${encodeURIComponent(id)}`}
                   className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-accent/50 px-3 py-1.5 text-sm font-medium text-primary-dark hover:bg-accent"
                 >
                   <Sparkles aria-hidden="true" className="size-4" />
                   {topicNames.get(id) ?? id}
-                </Link>
+                </QuizLink>
               </li>
             ))}
           </ul>
@@ -152,9 +155,9 @@ export function QuizResult({ result, topicName, threshold, topicNames, onRetry }
 
       <div className="flex flex-wrap gap-2">
         <Button asChild className="h-10 px-4">
-          <Link to="/dashboard">
+          <Link to={back.to}>
             <LayoutDashboard aria-hidden="true" />
-            Back to dashboard
+            {back.label}
           </Link>
         </Button>
         {(!result.passed || !counted) && (

@@ -5,13 +5,15 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchCurrentUser } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
-import { fetchTopicGraph } from '@/api/topics'
-import { topicGraph } from '@/test/fixtures'
+import { fetchCatalogue } from '@/api/domains'
+import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
+import { catalogue, topicGraph, topicMap } from '@/test/fixtures'
 import { deferred, httpError, LEARNER } from '@/test/helpers'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchTopicGraph: vi.fn(), fetchTopicMap: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/domains', () => ({ fetchCatalogue: vi.fn(), fetchHome: vi.fn(), joinDomain: vi.fn() }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn(() => new Promise(() => {})) }))
 
 // jsdom has no canvas. The fake keeps the library's contract: it receives the same props, places
@@ -57,6 +59,7 @@ beforeEach(() => {
   }
   tokenStorage.set('jwt')
   fetchCurrentUser.mockResolvedValue(LEARNER)
+  fetchCatalogue.mockResolvedValue(catalogue())
 })
 
 /** topicGraph() with some statuses changed, e.g. {html_basics: 'completed', css_basics: 'in_progress'}. */
@@ -66,7 +69,9 @@ function graphWith(statuses = {}, changes = {}) {
   return data
 }
 
-async function open(data = topicGraph(), entry = '/graph') {
+const WEB = '/domains/web-development/graph'
+
+async function open(data = topicGraph(), entry = WEB) {
   fetchTopicGraph.mockResolvedValue(data)
   const user = userEvent.setup()
   const view = renderAt(entry)
@@ -81,7 +86,7 @@ describe('the graph', () => {
   it('shows a placeholder while loading, then every topic and prerequisite link', async () => {
     const pending = deferred()
     fetchTopicGraph.mockReturnValue(pending.promise)
-    renderAt('/graph')
+    renderAt(WEB)
     expect(await screen.findByRole('status', { name: 'Loading the knowledge graph' })).toBeInTheDocument()
     await act(async () => pending.resolve(topicGraph()))
     await screen.findByTestId('force-graph')
@@ -100,7 +105,7 @@ describe('the graph', () => {
   it('offers a retry when the graph cannot be loaded', async () => {
     fetchTopicGraph.mockRejectedValueOnce(httpError(503, 'Graph database is temporarily unavailable.'))
     const user = userEvent.setup()
-    renderAt('/graph')
+    renderAt(WEB)
     expect(await screen.findByRole('heading', { name: "Couldn't load the knowledge graph" })).toBeInTheDocument()
     expect(screen.getByText('Graph database is temporarily unavailable.')).toBeInTheDocument()
     fetchTopicGraph.mockResolvedValueOnce(topicGraph())
@@ -119,7 +124,7 @@ describe('the graph', () => {
       'Locked6 topics, shown padlock',
     ])
     expect(items[4]).toBe('Prerequisite to the topic it unlocks')
-    expect(screen.getByText('1 of 9 topics completed. Select a topic to see its details.')).toBeInTheDocument()
+    expect(screen.getByText('Web Development · 1 of 9 topics completed. Select a topic to see its details.')).toBeInTheDocument()
   })
 
   it('describes the graph in text for screen readers', async () => {
@@ -231,7 +236,7 @@ describe('selecting a topic', () => {
   })
 
   it('opens a topic from the URL and centres it once the layout settles', async () => {
-    await open(topicGraph(), '/graph?topic=css_basics')
+    await open(topicGraph(), `${WEB}?topic=css_basics`)
     expect(within(panel()).getByRole('heading', { level: 2, name: 'CSS Basics' })).toBeInTheDocument()
     act(() => graph.props.onEngineStop())
     expect(graph.api.zoomToFit).not.toHaveBeenCalled()
@@ -239,7 +244,7 @@ describe('selecting a topic', () => {
   })
 
   it('shows the hint when the URL names a topic that does not exist', async () => {
-    await open(topicGraph(), '/graph?topic=quantum_basics')
+    await open(topicGraph(), `${WEB}?topic=quantum_basics`)
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
     expect(screen.getByText('Select a topic to see its details, prerequisites and resources.')).toBeInTheDocument()
   })
@@ -268,5 +273,140 @@ describe('list view', () => {
     await user.click(graphButton)
     expect(await screen.findByTestId('force-graph')).toBeInTheDocument()
     expect(panel()).toBeInTheDocument()
+  })
+})
+
+describe('a domain', () => {
+  it("loads the domain in the URL, with the switcher and a link to the domain's dashboard", async () => {
+    await open()
+    expect(fetchTopicGraph).toHaveBeenCalledWith('web-development')
+    expect(screen.getByRole('button', { name: 'Web Development: switch domain' })).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+      'href',
+      '/domains/web-development',
+    )
+  })
+
+  it("the switcher opens the other domain's graph, not its dashboard", async () => {
+    const { user } = await open()
+    await user.click(screen.getByRole('button', { name: 'Web Development: switch domain' }))
+    expect(await screen.findByRole('menuitem', { name: /Foundations/ })).toHaveAttribute('href', '/domains/foundations/graph')
+  })
+
+  it('names a prerequisite from another domain and links to it there', async () => {
+    const { user } = await open(graphWith({ react_router: 'completed' }))
+    await clickNode(user, 'deployment_basics')
+    expect(within(panel()).getByText('Complete Command Line (Foundations) to unlock it.')).toBeInTheDocument()
+    const prerequisites = within(panel()).getByRole('region', { name: 'Prerequisites' })
+    expect(within(prerequisites).getByRole('button', { name: /React Router/ })).toBeInTheDocument()
+    const external = within(prerequisites).getByRole('link', { name: /Command Line/ })
+    expect(external).toHaveTextContent('Command LineIn FoundationsNot completed')
+    expect(external).toHaveAttribute('href', '/domains/foundations/graph?topic=command_line')
+  })
+
+  it('a completed prerequisite from another domain no longer holds the topic back', async () => {
+    const data = graphWith({ react_router: 'completed', deployment_basics: 'unlocked' })
+    data.nodes.find((n) => n.id === 'deployment_basics').external_prerequisites[0].completed = true
+    const { user } = await open(data)
+    await clickNode(user, 'deployment_basics')
+    expect(within(panel()).getByRole('link', { name: /Command Line/ })).toHaveTextContent('Completed')
+    expect(within(panel()).getByRole('link', { name: 'Start topic: Deployment Basics' })).toBeInTheDocument()
+  })
+
+  it('a shared topic links to the other domains it belongs to', async () => {
+    const { user } = await open(graphWith({}, { html_basics: { domains: ['foundations', 'web-development'] } }))
+    await clickNode(user, 'html_basics')
+    const domains = within(panel()).getByRole('region', { name: 'Also part of' })
+    expect(within(domains).getByRole('link', { name: 'Foundations' })).toHaveAttribute(
+      'href',
+      '/domains/foundations/graph?topic=html_basics',
+    )
+    await clickNode(user, 'css_basics')
+    expect(within(panel()).queryByRole('region', { name: 'Also part of' })).not.toBeInTheDocument()
+  })
+
+  it('says when nothing in this domain builds on a topic', async () => {
+    const { user } = await open()
+    await clickNode(user, 'deployment_basics')
+    expect(within(panel()).getByRole('region', { name: 'Unlocks' })).toHaveTextContent('Nothing in this domain.')
+  })
+
+  it('an unknown domain says so and links to the catalogue', async () => {
+    fetchTopicGraph.mockRejectedValue(httpError(404, "Unknown domain 'nope'"))
+    renderAt('/domains/nope/graph')
+    expect(await screen.findByRole('heading', { name: "We couldn't find that domain" })).toBeInTheDocument()
+  })
+})
+
+describe('the full map', () => {
+  async function openMap(entry = '/map') {
+    fetchTopicMap.mockResolvedValue(topicMap())
+    const user = userEvent.setup()
+    const view = renderAt(entry)
+    await screen.findByTestId('force-graph')
+    return { user, ...view }
+  }
+
+  it('shows every topic in every domain, with prerequisites across domains as links', async () => {
+    await openMap()
+    expect(screen.getByRole('heading', { level: 1, name: 'Full map' })).toBeInTheDocument()
+    expect(screen.getByText(/^Every domain: 0 of 11 topics completed\./)).toBeInTheDocument()
+    expect(graph.props.graphData.nodes).toHaveLength(11)
+    expect(graph.props.graphData.links).toContainEqual({ source: 'command_line', target: 'deployment_basics' })
+    expect(fetchTopicGraph).not.toHaveBeenCalled()
+  })
+
+  it('groups topics by domain: a band per domain, and each domain drawn behind its topics', async () => {
+    await openMap()
+    expect(graph.api.d3Force).toHaveBeenCalledWith('band', expect.any(Function))
+    expect(graph.props.onRenderFramePre).toEqual(expect.any(Function))
+    const ctx = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn() }
+    act(() => graph.props.onRenderFramePre(ctx, 1))
+    expect(ctx.fillText.mock.calls.map(([text]) => text)).toEqual(['Foundations', 'Web Development'])
+  })
+
+  it('always starts fitted, so it opens on the domains', async () => {
+    await openMap()
+    // The fake bounding box would be readable unfitted too; a map is fitted even when it isn't.
+    graph.api.getGraphBbox.mockReturnValue({ x: [0, 4000], y: [-2000, 2000] })
+    act(() => graph.props.onEngineStop())
+    expect(graph.api.zoomToFit).toHaveBeenCalledTimes(1)
+  })
+
+  it("a domain's own graph isn't grouped", async () => {
+    await open()
+    expect(graph.props.onRenderFramePre).toBeUndefined()
+    expect(graph.api.d3Force).not.toHaveBeenCalledWith('band', expect.anything())
+  })
+
+  it('lists every domain a topic belongs to, each linking to that domain', async () => {
+    const { user } = await openMap()
+    await clickNode(user, 'git_basics')
+    const domains = within(panel()).getByRole('region', { name: 'Part of' })
+    expect(within(domains).getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Foundations', '/domains/foundations/graph?topic=git_basics'],
+      ['Web Development', '/domains/web-development/graph?topic=git_basics'],
+    ])
+    // Every prerequisite is a topic on the map, so none is listed as being elsewhere.
+    await clickNode(user, 'deployment_basics')
+    const prerequisites = within(panel()).getByRole('region', { name: 'Prerequisites' })
+    expect(within(prerequisites).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'React RouterLocked',
+      'Command LineUnlocked',
+    ])
+    expect(within(prerequisites).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('the list names the domain of each topic', async () => {
+    const { user } = await openMap()
+    await user.click(screen.getByRole('button', { name: 'List' }))
+    expect(screen.getByRole('button', { name: /^Command Line/ })).toHaveTextContent('Foundations · Beginner · 10%')
+    expect(screen.getByRole('button', { name: /^HTML Basics/ })).toHaveTextContent('Web Development · Beginner · 10%')
+  })
+
+  it('the old graph address opens the map, keeping the selected topic', async () => {
+    const { router } = await openMap('/graph?topic=css_basics')
+    expect(router.state.location.pathname).toBe('/map')
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'CSS Basics' })).toBeInTheDocument()
   })
 })

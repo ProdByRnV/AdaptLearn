@@ -54,9 +54,16 @@ export function unlocksOf(id, topics) {
   return topics.filter((topic) => topic.prerequisites.includes(id))
 }
 
-/** Prerequisites of a topic that aren't completed yet: what stands between the learner and it. */
+/**
+ * Prerequisites of a topic that aren't completed yet: what stands between the learner and it.
+ * Those from other domains (external_prerequisites) come last, named with their domain.
+ */
 export function missingPrerequisites(topic, topicsById) {
-  return topic.prerequisites.map((id) => topicsById.get(id)).filter((t) => t && t.status !== 'completed')
+  const internal = topic.prerequisites.map((id) => topicsById.get(id)).filter((t) => t && t.status !== 'completed')
+  const external = (topic.external_prerequisites ?? [])
+    .filter((p) => !p.completed)
+    .map((p) => ({ ...p, name: `${p.name} (${p.domain_name})` }))
+  return [...internal, ...external]
 }
 
 /** The selected topic plus its direct prerequisites and the topics it unlocks. */
@@ -168,6 +175,145 @@ export function paintNode(node, ctx, scale, { palette, selectedId, related }) {
     })
   }
   ctx.restore()
+}
+
+// --- The whole map: topics grouped by the domain that defines them ------------------------
+
+/** Height of one row of topics in a domain's band, and the room around each band, in graph units. */
+export const BAND_ROW = 50
+export const BAND_PADDING = 90
+/** How hard each topic is pulled to its row on the map; strong, so domains stay in their bands. */
+export const BAND_STRENGTH = 0.6
+
+/**
+ * Prerequisite depth, as force-graph's left-to-right layout uses for columns: 0 for a topic with no
+ * prerequisites on the graph, otherwise one more than its deepest prerequisite.
+ */
+export function topicDepths(nodes) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const depths = new Map()
+  const visit = (id, trail) => {
+    if (depths.has(id)) return depths.get(id)
+    if (trail.has(id)) return 0 // The curriculum is validated as acyclic; this only stops a loop.
+    trail.add(id)
+    const prerequisites = (byId.get(id)?.prerequisites ?? []).filter((pre) => byId.has(pre))
+    const depth = prerequisites.length ? 1 + Math.max(...prerequisites.map((pre) => visit(pre, trail))) : 0
+    depths.set(id, depth)
+    return depth
+  }
+  for (const node of nodes) visit(node.id, new Set())
+  return depths
+}
+
+/**
+ * Where each domain's band sits on the whole map: the vertical centre for its topics, in
+ * curriculum order from the top, each band as tall as its busiest column. Centred on 0.
+ */
+export function groupBands(nodes, groups) {
+  const depths = topicDepths(nodes)
+  const centres = new Map()
+  let top = 0
+  for (const group of groups) {
+    const columns = new Map()
+    for (const node of nodes) {
+      if (node.home_domain !== group.id) continue
+      const depth = depths.get(node.id)
+      columns.set(depth, (columns.get(depth) ?? 0) + 1)
+    }
+    if (columns.size === 0) continue
+    const height = Math.max(...columns.values()) * BAND_ROW + BAND_PADDING
+    centres.set(group.id, top + height / 2)
+    top += height
+  }
+  for (const [id, y] of centres) centres.set(id, y - top / 2)
+  return centres
+}
+
+/**
+ * The row of every topic on the whole map: in its home domain's band, the topics of each column
+ * are spaced BAND_ROW apart around the band's centre. Columns are filled left to right, and within
+ * one, topics sit in the order of where their prerequisites are (their average row), so lines
+ * cross as little as possible; ties keep the API's order.
+ */
+export function bandRows(nodes, groups) {
+  const centres = groupBands(nodes, groups)
+  const depths = topicDepths(nodes)
+  const order = new Map(nodes.map((node, i) => [node.id, i]))
+  const rows = new Map()
+  const cells = new Map()
+  for (const node of nodes) {
+    if (!centres.has(node.home_domain)) continue
+    const key = `${depths.get(node.id)}|${node.home_domain}`
+    if (!cells.has(key)) cells.set(key, { depth: depths.get(node.id), group: node.home_domain, nodes: [] })
+    cells.get(key).nodes.push(node)
+  }
+  const anchor = (node) => {
+    const placed = node.prerequisites.filter((pre) => rows.has(pre)).map((pre) => rows.get(pre))
+    return placed.length ? placed.reduce((a, b) => a + b, 0) / placed.length : centres.get(node.home_domain)
+  }
+  for (const cell of [...cells.values()].sort((a, b) => a.depth - b.depth)) {
+    const sorted = cell.nodes
+      .map((node) => ({ node, at: anchor(node) }))
+      .sort((a, b) => a.at - b.at || order.get(a.node.id) - order.get(b.node.id))
+    sorted.forEach(({ node }, i) => rows.set(node.id, centres.get(cell.group) + (i - (sorted.length - 1) / 2) * BAND_ROW))
+  }
+  return rows
+}
+
+/**
+ * The area each domain covers on the map, from its topics' current positions: a box around them
+ * with room for labels, and space at the top for the domain's name. Domains with no placed topics
+ * are left out.
+ */
+export function groupBoxes(nodes, groups, scale = 1) {
+  const zoomedOut = scale < LABEL_MIN_SCALE
+  // Labels sit under each topic and are wider than it, so the box leaves more room there.
+  const padX = 50
+  const padTop = 20
+  const padBottom = 40
+  const titleSpace = (zoomedOut ? 30 : 20) / scale
+  return groups.flatMap((group) => {
+    const placed = nodes.filter((n) => n.home_domain === group.id && Number.isFinite(n.x) && Number.isFinite(n.y))
+    if (placed.length === 0) return []
+    const xs = placed.map((n) => n.x)
+    const ys = placed.map((n) => n.y)
+    return [{
+      id: group.id,
+      name: group.name,
+      x: Math.min(...xs) - padX,
+      y: Math.min(...ys) - padTop - titleSpace,
+      width: Math.max(...xs) - Math.min(...xs) + 2 * padX,
+      height: Math.max(...ys) - Math.min(...ys) + padTop + padBottom + titleSpace,
+    }]
+  })
+}
+
+/**
+ * Draw each domain's area under the topics, named in its corner. Zoomed out, where topic labels
+ * are hidden, the names are drawn large so the map reads as its domains.
+ */
+export function paintGroups(ctx, scale, nodes, groups, palette) {
+  const zoomedOut = scale < LABEL_MIN_SCALE
+  const fontSize = (zoomedOut ? 20 : 12) / scale
+  for (const box of groupBoxes(nodes, groups, scale)) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(box.x, box.y, box.width, box.height)
+    ctx.globalAlpha = 0.06
+    ctx.fillStyle = palette.primary
+    ctx.fill()
+    ctx.globalAlpha = 0.8
+    ctx.lineWidth = 1 / scale
+    ctx.strokeStyle = palette.link
+    ctx.stroke()
+    ctx.globalAlpha = 1
+    ctx.font = `600 ${fontSize}px "Geist Variable", system-ui, sans-serif`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = palette.primaryDark
+    ctx.fillText(box.name, box.x + 8 / scale, box.y + 6 / scale)
+    ctx.restore()
+  }
 }
 
 /** Minimum tap radius on screen, in CSS pixels, so small zooms still leave a usable target. */

@@ -10,6 +10,8 @@ import pytest
 from neo4j.exceptions import ServiceUnavailable
 
 from models import TopicProgress
+from seed.curriculum import DOMAINS
+from seed.curriculum import PREREQUISITES as ALL_PREREQUISITES
 from seed.curriculum import TOPICS as POOL
 from seed.domains.web_development import WEB_DEVELOPMENT
 from services import topic_service
@@ -36,7 +38,7 @@ def _nodes_by_id(response):
 
 # --- Auth & domain -------------------------------------------------------------
 
-@pytest.mark.parametrize("path", ["/api/topics/all", "/api/topics/graph"])
+@pytest.mark.parametrize("path", ["/api/topics/all", "/api/topics/graph", "/api/topics/map"])
 def test_requires_authentication(client, path):
     response = client.get(path)
     assert response.status_code == 401
@@ -92,12 +94,17 @@ def test_graph_has_30_nodes_and_37_links_in_spec_shape(client, make_user):
 
     assert response.status_code == 200
     body = response.json()
+    assert (body["domain"], body["domain_name"]) == ("web-development", "Web Development")
+    assert body["domains"] == [{"id": d.id, "name": d.name} for d in DOMAINS]
     assert len(body["nodes"]) == 30
     assert len(body["links"]) == 37
     for node in body["nodes"]:
         # Spec fields (ARCHITECTURE 13.7) plus mastered + prerequisites for the UI, and the
         # domains it belongs to + prerequisites from other domains (Phase 22).
-        assert set(node) == SPEC_NODE_FIELDS | {"mastered", "prerequisites", "domains", "external_prerequisites"}
+        # The UI's domain views also need each topic's home domain (Phase 24).
+        assert set(node) == SPEC_NODE_FIELDS | {
+            "mastered", "prerequisites", "domains", "external_prerequisites", "home_domain",
+        }
         assert node["external_prerequisites"] == []  # Web Development has none yet
     for link in body["links"]:
         assert set(link) == {"source", "target"}
@@ -167,14 +174,50 @@ def test_progress_is_scoped_to_the_current_user(client, make_user, db):
     assert nodes["html_basics"]["mastery"] == 10.0
 
 
-def test_neo4j_outage_returns_503(client, make_user, monkeypatch):
+# --- GET /api/topics/map (Phase 24) ---------------------------------------------
+
+def test_map_has_every_topic_once_and_every_prerequisite(client, make_user):
+    _, headers = make_user()
+    body = client.get("/api/topics/map", headers=headers).json()
+
+    assert body["domains"] == [{"id": d.id, "name": d.name} for d in DOMAINS]
+    ids = [n["id"] for n in body["nodes"]]
+    assert sorted(ids) == sorted(t.id for t in POOL)
+    # Easiest first, then by name, like every other topic list.
+    assert [(n["difficulty"], n["name"]) for n in body["nodes"]] == sorted((n["difficulty"], n["name"]) for n in body["nodes"])
+    # Every topic is a node, so every prerequisite (across domains too) is a link.
+    assert {(link["source"], link["target"]) for link in body["links"]} == set(ALL_PREREQUISITES)
+    home = {t.id: d.id for d in DOMAINS for t in d.topics}
+    for node in body["nodes"]:
+        assert node["external_prerequisites"] == []
+        assert node["home_domain"] == home[node["id"]]
+        assert node["home_domain"] in node["domains"]
+    git = next(n for n in body["nodes"] if n["id"] == "git_basics")
+    assert git["domains"] == ["foundations", "web-development"]
+
+
+def test_map_shows_the_learners_own_progress(client, make_user, db):
+    user_id, headers = make_user()
+    other_id, _ = make_user()
+    _add_progress(db, user_id, "html_basics", "completed", p_know=0.97)
+    _add_progress(db, other_id, "git_basics", "completed", p_know=0.97)
+
+    nodes = _nodes_by_id(client.get("/api/topics/map", headers=headers))
+    assert (nodes["html_basics"]["status"], nodes["html_basics"]["mastery"]) == ("completed", 97.0)
+    assert nodes["html_basics"]["mastered"] is True
+    assert nodes["css_basics"]["status"] == "unlocked"  # derived: its only prerequisite is done
+    assert nodes["git_basics"]["status"] == "unlocked"  # another learner's progress doesn't count
+
+
+@pytest.mark.parametrize("path", ["/api/topics/graph", "/api/topics/map"])
+def test_neo4j_outage_returns_503(client, make_user, monkeypatch, path):
     _, headers = make_user()
 
     def down(*args, **kwargs):
         raise ServiceUnavailable("Neo4j is down")
 
     monkeypatch.setattr(topic_service.neo4j_db, "read", down)
-    response = client.get("/api/topics/graph", headers=headers)
+    response = client.get(path, headers=headers)
     assert response.status_code == 503
     assert "temporarily unavailable" in response.json()["detail"]
 

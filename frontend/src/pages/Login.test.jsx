@@ -4,17 +4,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchCurrentUser, loginRequest } from '@/api/auth'
 import api, { tokenStorage } from '@/api/client'
-import { fetchLearningPath, fetchTopicGraph } from '@/api/topics'
+import { fetchCatalogue, fetchHome } from '@/api/domains'
+import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
+import { home } from '@/test/fixtures'
 import { deferred, fakeServer, httpError, LEARNER, networkError } from '@/test/helpers'
 import { fetchDashboard } from '@/api/progress'
 import { renderAt } from '@/test/render-app'
 
 vi.mock('@/api/auth', () => ({ fetchCurrentUser: vi.fn(), loginRequest: vi.fn(), registerRequest: vi.fn() }))
 vi.mock('@/api/progress', () => ({ fetchDashboard: vi.fn() }))
-vi.mock('@/api/topics', () => ({ fetchLearningPath: vi.fn(), fetchTopicGraph: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/topics', () => ({ fetchTopicGraph: vi.fn(), fetchTopicMap: vi.fn(), markKnownTopics: vi.fn() }))
+vi.mock('@/api/domains', () => ({ fetchCatalogue: vi.fn(), fetchHome: vi.fn(), joinDomain: vi.fn() }))
 
 const session = { access_token: 'jwt-login', token_type: 'bearer', user: LEARNER }
-const path = (onboarded) => ({ domain: 'Web Development', onboarded, curriculum_complete: false, recommended: [] })
+// The home page for a learner with domains, or without any yet.
+const landing = (hasDomains) => (hasDomains ? home() : { domains: [], up_next: [], suggestions: [], recent_attempts: [] })
 
 const emailInput = () => screen.getByLabelText('Email')
 const passwordInput = () => screen.getByLabelText('Password')
@@ -29,9 +33,11 @@ async function fillAndSubmit(user, email = 'puja@example.com', password = 'Stron
 beforeEach(() => {
   // The dashboard's own behaviour is tested in Dashboard.test.jsx; here it just stays loading.
   fetchDashboard.mockReturnValue(new Promise(() => {}))
-  // The onboarding page's own behaviour is tested in Onboarding.test.jsx; here it just stays loading.
+  // The graph and catalogue pages are tested in their own files; here they just stay loading.
   fetchTopicGraph.mockReturnValue(new Promise(() => {}))
-  fetchLearningPath.mockResolvedValue(path(true))
+  fetchTopicMap.mockReturnValue(new Promise(() => {}))
+  fetchCatalogue.mockReturnValue(new Promise(() => {}))
+  fetchHome.mockResolvedValue(landing(true))
 })
 
 describe('form', () => {
@@ -86,7 +92,7 @@ describe('form', () => {
 
 describe('signing in', () => {
   // Email inputs drop surrounding spaces themselves (HTML value sanitisation); the page trims too.
-  it('sends the trimmed email and the exact password, then opens the dashboard', async () => {
+  it('sends the trimmed email and the exact password, then opens the home page', async () => {
     loginRequest.mockResolvedValue(session)
     const user = userEvent.setup()
     const { router } = renderAt('/login')
@@ -94,29 +100,29 @@ describe('signing in', () => {
     await fillAndSubmit(user, '  puja@example.com  ', ' pass word ')
     expect(loginRequest).toHaveBeenCalledWith({ email: 'puja@example.com', password: ' pass word ' })
     await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
-    expect(router.state.location.pathname).toBe('/dashboard')
+    expect(router.state.location.pathname).toBe('/home')
     expect(tokenStorage.get()).toBe('jwt-login')
   })
 
-  it('opens onboarding for a learner who has not done it yet', async () => {
+  it('opens the catalogue for a learner who has not joined a domain yet', async () => {
     loginRequest.mockResolvedValue(session)
-    fetchLearningPath.mockResolvedValue(path(false))
+    fetchHome.mockResolvedValue(landing(false))
     const user = userEvent.setup()
     const { router } = renderAt('/login')
     await screen.findByLabelText('Email')
     await fillAndSubmit(user)
-    await screen.findByRole('heading', { name: 'What do you already know?' })
-    expect(router.state.location.pathname).toBe('/onboarding')
+    await screen.findByRole('heading', { level: 1, name: 'Domains' })
+    expect(router.state.location.pathname).toBe('/domains')
   })
 
   it('returns to the page the learner was sent away from', async () => {
     loginRequest.mockResolvedValue(session)
     const user = userEvent.setup()
-    const { router } = renderAt('/graph')
+    const { router } = renderAt('/map')
     await screen.findByLabelText('Email')
     await fillAndSubmit(user)
-    await screen.findByRole('heading', { name: 'Knowledge graph' })
-    expect(router.state.location.pathname).toBe('/graph')
+    await screen.findByRole('heading', { name: 'Full map' })
+    expect(router.state.location.pathname).toBe('/map')
   })
 
   it('shows progress and ignores extra clicks while signing in', async () => {
@@ -207,11 +213,11 @@ it('after a session expires, the notice gives way to the error of a failed attem
   tokenStorage.set('jwt-old')
   fetchCurrentUser.mockResolvedValue(LEARNER)
   const user = userEvent.setup()
-  renderAt('/dashboard')
+  renderAt('/home')
   await screen.findByRole('heading', { name: 'Welcome back, Puja Sharma' })
 
   fakeServer(401, { detail: 'Could not validate credentials' })
-  await act(() => api.get('/progress/dashboard').catch(() => {}))
+  await act(() => api.get('/home').catch(() => {}))
   expect(await screen.findByRole('alert')).toHaveTextContent('Your session has expired')
 
   loginRequest.mockRejectedValue(httpError(401, 'Incorrect email or password'))

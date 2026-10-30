@@ -2,10 +2,12 @@ import { ArrowRight, Clock, Hourglass, ListChecks, Loader2, Lock, ShieldCheck, T
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 
+import { QuizLink } from '@/components/topics/QuizLink'
 import { TopicStatusBadge } from '@/components/topics/TopicStatusBadge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { useBackLink } from '@/hooks/useBackLink'
 import { useNow } from '@/hooks/useNow'
 import { formatClock, formatPercent } from '@/lib/format'
 import { difficultyLabel, listNames } from '@/lib/topics'
@@ -24,6 +26,7 @@ const FORMAT = [
 /** Before a quiz exists: the topic, the format, and the button that generates the questions. */
 export function QuizIntro({ topic, prerequisiteNames, otherActive, startError, preparing, onPrepare }) {
   const locked = topic.status === 'locked'
+  const back = useBackLink()
 
   return (
     <div className="flex flex-col gap-4">
@@ -36,9 +39,9 @@ export function QuizIntro({ topic, prerequisiteNames, otherActive, startError, p
               {otherActive.answered_questions} of {otherActive.total_questions} questions answered. Starting this quiz
               abandons it, and it won't count.
             </p>
-            <Link to={`/quiz/${encodeURIComponent(otherActive.topic.id)}`} className="font-medium text-primary">
+            <QuizLink to={`/quiz/${encodeURIComponent(otherActive.topic.id)}`} className="font-medium text-primary">
               Resume {otherActive.topic.name} instead
-            </Link>
+            </QuizLink>
           </AlertDescription>
         </Alert>
       )}
@@ -75,8 +78,8 @@ export function QuizIntro({ topic, prerequisiteNames, otherActive, startError, p
               {prerequisiteNames.length > 0
                 ? `Complete ${listNames(prerequisiteNames, 4)} first.`
                 : 'Complete its prerequisites first.'}{' '}
-              <Link to="/dashboard" className="font-medium text-primary">
-                Back to dashboard
+              <Link to={back.to} className="font-medium text-primary">
+                {back.label}
               </Link>
             </AlertDescription>
           </Alert>

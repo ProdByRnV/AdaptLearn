@@ -1,7 +1,6 @@
 import { ArrowRight } from 'lucide-react'
-import { Link } from 'react-router'
-
 import { ProgressBar } from '@/components/common/ProgressBar'
+import { QuizLink } from '@/components/topics/QuizLink'
 import { TopicStatusBadge } from '@/components/topics/TopicStatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -9,9 +8,10 @@ import { difficultyLabel, listNames, topicAction } from '@/lib/topics'
 
 /**
  * A recommended next topic (PRD 9): name, description, difficulty, status, mastery,
- * prerequisite summary and the primary action.
+ * prerequisite summary and the primary action. `domainNames`, when given, says which of the
+ * learner's domains the topic counts towards (the home page, across domains).
  */
-export function RecommendedTopicCard({ topic, retry }) {
+export function RecommendedTopicCard({ topic, retry, domainNames }) {
   const action = topicAction(topic, { retry })
   return (
     <Card className="h-full gap-4 px-5 py-5">
@@ -30,13 +30,16 @@ export function RecommendedTopicCard({ topic, retry }) {
           ? `Builds on ${listNames(topic.prerequisite_names, 3)}`
           : 'No prerequisites'}
       </p>
+      {domainNames?.length > 0 && (
+        <p className="text-xs font-medium text-primary-dark">Counts towards {listNames(domainNames, 3)}</p>
+      )}
       <div className="mt-auto flex flex-col gap-4">
         <ProgressBar value={topic.mastery} label="Mastery" />
         <Button asChild className="h-9 w-full">
-          <Link to={action.to} aria-label={`${action.label}: ${topic.name}`}>
+          <QuizLink to={action.to} aria-label={`${action.label}: ${topic.name}`}>
             {action.label}
             <ArrowRight aria-hidden="true" />
-          </Link>
+          </QuizLink>
         </Button>
       </div>
     </Card>

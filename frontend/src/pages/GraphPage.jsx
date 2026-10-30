@@ -1,35 +1,89 @@
-import { List, MousePointerClick, Network } from 'lucide-react'
+import { LayoutDashboard, List, MousePointerClick, Network } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { cn } from 'cn'
 
 import { getErrorMessage } from '@/api/client'
-import { fetchTopicGraph } from '@/api/topics'
+import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
 import { ErrorState } from '@/components/common/ErrorState'
 import { PageHeader } from '@/components/common/PageHeader'
+import { DomainNotFound } from '@/components/domains/DomainNotFound'
+import { DomainSwitcher } from '@/components/domains/DomainSwitcher'
 import { GraphLegend } from '@/components/graph/GraphLegend'
 import { TopicList } from '@/components/graph/TopicList'
 import { TopicPanel } from '@/components/graph/TopicPanel'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useApiData } from '@/hooks/useApiData'
+import { domainPath, isUnknownDomain } from '@/lib/domains'
 import { statusCounts, toGraphData } from '@/lib/graph'
+import { domainLabel } from '@/lib/topics'
 
 // The graph library (canvas + d3) is only downloaded when this page shows the graph.
 const KnowledgeGraph = lazy(() => import('@/components/graph/KnowledgeGraph'))
 
 /**
- * The curriculum as an interactive graph (PRD: knowledge graph), or as a list. Selecting a topic
- * opens its detail panel; the selection lives in the URL (?topic=id) so it survives a reload and
- * other pages can link straight to a topic.
+ * A domain's curriculum as an interactive graph (PRD: knowledge graph), or as a list. Prerequisites
+ * from other domains aren't nodes here; the topic panel links to them in their own domain.
  */
-export default function GraphPage() {
-  const { data, error, loading, reload } = useApiData(fetchTopicGraph)
+export function DomainGraphPage() {
+  const { domainId } = useParams()
+  const loader = useCallback(() => fetchTopicGraph(domainId), [domainId])
+  const state = useApiData(loader)
+
+  if (isUnknownDomain(state.error)) return <DomainNotFound />
+  const name = state.data?.domain_name ?? domainLabel(domainId)
+  return (
+    <GraphScreen
+      state={state}
+      title="Knowledge graph"
+      summary={(completed, total) => `${name} · ${completed} of ${total} topics completed. Select a topic to see its details.`}
+      placeholder={`Every ${name} topic and the prerequisites between them.`}
+      actions={
+        <>
+          <DomainSwitcher domainId={domainId} name={name} view="graph" />
+          <Button asChild variant="outline" className="h-9">
+            <Link to={domainPath(domainId)}>
+              <LayoutDashboard aria-hidden="true" />
+              Dashboard
+            </Link>
+          </Button>
+        </>
+      }
+      domainId={domainId}
+    />
+  )
+}
+
+/** Every topic in every domain on one graph, grouped by the domain that defines each topic. */
+export function MapPage() {
+  const state = useApiData(fetchTopicMap)
+  return (
+    <GraphScreen
+      state={state}
+      title="Full map"
+      summary={(completed, total) =>
+        `Every domain: ${completed} of ${total} topics completed. Topics are grouped by the domain that defines them.`
+      }
+      placeholder="Every topic in every domain, and the prerequisites between them."
+      grouped
+    />
+  )
+}
+
+/**
+ * The graph or list, the legend and the topic panel. The selected topic lives in the URL
+ * (?topic=id) so it survives a reload and other pages can link straight to a topic.
+ */
+function GraphScreen({ state, title, summary, placeholder, actions, domainId = null, grouped = false }) {
+  const { data, error, loading, reload } = state
   const [params, setParams] = useSearchParams()
   const [view, setView] = useState('graph')
 
   const topics = useMemo(() => data?.nodes ?? [], [data])
   const topicsById = useMemo(() => new Map(topics.map((t) => [t.id, t])), [topics])
+  const domainNames = useMemo(() => new Map((data?.domains ?? []).map((d) => [d.id, d.name])), [data])
   const counts = useMemo(() => statusCounts(topics), [topics])
   const selected = topicsById.get(params.get('topic')) ?? null
 
@@ -48,17 +102,16 @@ export default function GraphPage() {
   return (
     <>
       <PageHeader
-        title="Knowledge graph"
-        description={
-          data
-            ? `${counts.completed} of ${topics.length} topics completed. Select a topic to see its details.`
-            : 'Every topic and the prerequisites between them.'
-        }
+        title={title}
+        description={data ? summary(counts.completed, topics.length) : placeholder}
         actions={
-          <div role="group" aria-label="View" className="inline-flex rounded-lg border bg-card p-0.5">
-            <ViewButton active={view === 'graph'} onClick={() => setView('graph')} icon={Network} label="Graph" />
-            <ViewButton active={view === 'list'} onClick={() => setView('list')} icon={List} label="List" />
-          </div>
+          <>
+            {actions}
+            <div role="group" aria-label="View" className="inline-flex rounded-lg border bg-card p-0.5">
+              <ViewButton active={view === 'graph'} onClick={() => setView('graph')} icon={Network} label="Graph" />
+              <ViewButton active={view === 'list'} onClick={() => setView('list')} icon={List} label="List" />
+            </div>
+          </>
         }
       />
 
@@ -76,15 +129,28 @@ export default function GraphPage() {
           <GraphLegend counts={counts} />
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
             {view === 'graph' ? (
-              <GraphCard data={data} counts={counts} selectedId={selected?.id ?? null} onSelect={select} />
+              <GraphCard
+                data={data}
+                counts={counts}
+                groups={grouped ? data.domains : null}
+                selectedId={selected?.id ?? null}
+                onSelect={select}
+              />
             ) : (
-              <TopicList topics={topics} selectedId={selected?.id ?? null} onSelect={select} />
+              <TopicList
+                topics={topics}
+                selectedId={selected?.id ?? null}
+                onSelect={select}
+                domainNames={grouped ? domainNames : null}
+              />
             )}
             {selected ? (
               <TopicPanel
                 topic={selected}
                 topics={topics}
                 topicsById={topicsById}
+                domainId={domainId}
+                domainNames={domainNames}
                 onSelect={select}
                 onClose={() => select(null)}
               />
@@ -120,7 +186,7 @@ function ViewButton({ active, onClick, icon: Icon, label }) {
 }
 
 /** The canvas, sized to its container. Described in text for screen readers, who can use the list. */
-function GraphCard({ data, counts, selectedId, onSelect }) {
+function GraphCard({ data, counts, groups, selectedId, onSelect }) {
   const container = useRef(null)
   const [width, setWidth] = useState(0)
   const graphData = useMemo(() => toGraphData(data), [data])
@@ -144,7 +210,14 @@ function GraphCard({ data, counts, selectedId, onSelect }) {
         className="bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:20px_20px]"
       >
         <Suspense fallback={<Skeleton role="status" aria-label="Drawing the graph" className="rounded-none" style={{ height }} />}>
-          <KnowledgeGraph data={graphData} selectedId={selectedId} onSelect={onSelect} width={size} height={height} />
+          <KnowledgeGraph
+            data={graphData}
+            groups={groups}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            width={size}
+            height={height}
+          />
         </Suspense>
       </div>
     </Card>

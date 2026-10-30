@@ -8,6 +8,7 @@ from schemas.common import ErrorResponse
 from schemas.topics import (
     GraphResponse,
     LearningPathResponse,
+    MapResponse,
     MarkKnownRequest,
     MarkKnownResponse,
     TopicOut,
@@ -59,6 +60,12 @@ def topic_graph(current_user: CurrentUser, db: DbSession, domain: DomainParam = 
     except UnknownDomainError:
         raise _unknown_domain(domain)
     return GraphResponse.model_validate(graph)
+
+
+@router.get("/map", response_model=MapResponse)
+def topic_map(current_user: CurrentUser, db: DbSession) -> MapResponse:
+    """Every topic in every domain with the learner's status, and every prerequisite between them."""
+    return MapResponse.model_validate(topic_service.build_map(db, current_user.id))
 
 
 @router.get("/learning-path", response_model=LearningPathResponse)

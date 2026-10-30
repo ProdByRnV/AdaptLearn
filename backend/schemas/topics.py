@@ -41,6 +41,7 @@ class GraphNode(TopicOut):
         default_factory=list, description="Prerequisites from other domains, which must also be completed first"
     )
     domains: list[str] = Field(default_factory=list, description="Every domain this topic belongs to")
+    home_domain: str = Field(description="The domain that defines this topic")
 
 
 class GraphLink(BaseModel):
@@ -48,10 +49,23 @@ class GraphLink(BaseModel):
     target: str = Field(description="Topic it unlocks")
 
 
+class DomainRef(BaseModel):
+    id: str
+    name: str
+
+
 class GraphResponse(BaseModel):
     domain: str
+    domain_name: str
+    domains: list[DomainRef] = Field(description="Every domain, to name the other domains a topic belongs to")
     nodes: list[GraphNode]
     links: list[GraphLink]
+
+
+class MapResponse(BaseModel):
+    domains: list[DomainRef] = Field(description="Every domain, in curriculum order")
+    nodes: list[GraphNode] = Field(description="Every topic once, easiest first; no external prerequisites")
+    links: list[GraphLink] = Field(description="Every prerequisite, across domains")
 
 
 TopicId = Annotated[str, StringConstraints(min_length=1, max_length=100)]

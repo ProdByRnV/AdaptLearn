@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getErrorMessage, getRetryAfterSeconds } from '@/api/client'
 import { answerQuestion, fetchActiveQuiz, generateQuiz, nextQuestion, submitQuiz } from '@/api/quiz'
-import { fetchTopicGraph } from '@/api/topics'
+import { fetchTopicMap } from '@/api/topics'
 import { useProctoring } from '@/hooks/useProctoring'
 import { MIN_ANSWER_SECONDS, enterFullscreen, leaveFullscreen } from '@/lib/proctoring'
 
@@ -66,7 +66,8 @@ export function useQuizSession(topicId) {
   const load = useCallback(async () => {
     const id = ++loadId.current
     try {
-      const [topicGraph, active] = await Promise.all([fetchTopicGraph(), fetchActiveQuiz()])
+      // The whole map: the topic may belong to any domain, and so may the topics it unlocks.
+      const [topicGraph, active] = await Promise.all([fetchTopicMap(), fetchActiveQuiz()])
       if (!alive.current || id !== loadId.current) return
       setGraph(topicGraph)
       if (active?.topic.id === topicId) {

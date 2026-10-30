@@ -16,7 +16,7 @@ export default function NotFound() {
       <h1 className="text-2xl font-semibold tracking-tight text-ink">Page not found</h1>
       <p className="max-w-sm text-sm text-body">The page you were looking for doesn't exist or has moved.</p>
       <Button asChild className="mt-2">
-        <Link to={isAuthenticated ? '/dashboard' : '/login'}>{isAuthenticated ? 'Go to dashboard' : 'Go to login'}</Link>
+        <Link to={isAuthenticated ? '/home' : '/login'}>{isAuthenticated ? 'Go to home' : 'Go to login'}</Link>
       </Button>
     </main>
   )

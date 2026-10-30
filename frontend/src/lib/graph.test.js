@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { topicGraph } from '@/test/fixtures'
+import { DOMAINS, topicGraph, topicMap } from '@/test/fixtures'
 
 import {
+  BAND_PADDING,
+  BAND_ROW,
+  bandRows,
   endId,
+  groupBands,
+  groupBoxes,
+  paintGroups,
+  topicDepths,
   LABEL_MIN_SCALE,
   MIN_START_SCALE,
   startView,
@@ -235,5 +242,120 @@ describe('startView', () => {
 
   it('copes with a graph of one topic', () => {
     expect(startView({ x: [5, 5], y: [5, 5] }, 343, 400, 50)).toEqual({ fit: true })
+  })
+})
+
+describe('prerequisites from other domains', () => {
+  it("missing ones come after this domain's, named with their domain", () => {
+    const topics = topicGraph({ completed: ['react_router'] }).nodes
+    const deployment = topics.find((t) => t.id === 'deployment_basics')
+    expect(missingPrerequisites(deployment, byId(topics)).map((t) => t.name)).toEqual(['Command Line (Foundations)'])
+  })
+
+  it('completed ones are not missing', () => {
+    const topics = topicGraph({ completed: ['command_line'] }).nodes
+    const deployment = topics.find((t) => t.id === 'deployment_basics')
+    expect(missingPrerequisites(deployment, byId(topics)).map((t) => t.name)).toEqual(['React Router'])
+  })
+})
+
+describe('the whole map', () => {
+  const { nodes } = topicMap()
+
+  it('gives each topic its column: one past its deepest prerequisite', () => {
+    const depths = topicDepths(nodes)
+    expect(depths.get('command_line')).toBe(0)
+    expect(depths.get('git_basics')).toBe(1)
+    expect(depths.get('html_basics')).toBe(0)
+    expect(depths.get('react_router')).toBe(3)
+    // Command Line (column 0) doesn't pull it back; React Router (column 3) sets it.
+    expect(depths.get('deployment_basics')).toBe(4)
+  })
+
+  it('ignores prerequisites that are not on the graph, and never loops', () => {
+    const loop = [
+      { id: 'a', prerequisites: ['b', 'missing'] },
+      { id: 'b', prerequisites: ['a'] },
+    ]
+    const depths = topicDepths(loop)
+    expect(depths.size).toBe(2)
+    expect([...depths.values()].every(Number.isFinite)).toBe(true)
+  })
+
+  it('stacks a band per domain in curriculum order, each as tall as its busiest column', () => {
+    const bands = groupBands(nodes, DOMAINS)
+    // Foundations has one topic per column; Web Development's busiest column has two (CSS Basics
+    // and JavaScript Fundamentals, after HTML Basics).
+    const foundations = 1 * BAND_ROW + BAND_PADDING
+    const web = 2 * BAND_ROW + BAND_PADDING
+    const total = foundations + web
+    expect(bands.get('foundations')).toBe(foundations / 2 - total / 2)
+    expect(bands.get('web-development')).toBe(foundations + web / 2 - total / 2)
+  })
+
+  it('gives every topic its own row in its band, next to its prerequisites', () => {
+    const rows = bandRows(nodes, DOMAINS)
+    const bands = groupBands(nodes, DOMAINS)
+    const half = BAND_ROW / 2
+    // Alone in their columns, Foundations topics sit on the band's centre line.
+    expect(rows.get('command_line')).toBe(bands.get('foundations'))
+    expect(rows.get('git_basics')).toBe(bands.get('foundations'))
+    const web = bands.get('web-development')
+    expect(rows.get('html_basics')).toBe(web)
+    // Two topics in a column, one row apart; ties keep the API's order.
+    expect([rows.get('css_basics'), rows.get('javascript_fundamentals')]).toEqual([web - half, web + half])
+    // Each follows its prerequisite: Flexbox (after CSS) above React Fundamentals (after JavaScript).
+    expect([rows.get('flexbox'), rows.get('react_fundamentals')]).toEqual([web - half, web + half])
+    // Deployment Basics needs React Router and Command Line, far up in Foundations, so it goes above React Hooks.
+    expect(rows.get('deployment_basics')).toBeLessThan(rows.get('react_hooks'))
+    // Every topic in a band stays inside it.
+    for (const node of nodes.filter((n) => n.home_domain === 'web-development')) {
+      expect(Math.abs(rows.get(node.id) - web)).toBeLessThanOrEqual(half)
+    }
+  })
+
+  it('leaves out domains without topics', () => {
+    const bands = groupBands(nodes, [...DOMAINS, { id: 'empty', name: 'Empty' }])
+    expect([...bands.keys()]).toEqual(['foundations', 'web-development'])
+  })
+
+  it('boxes each domain around its placed topics, with room for its name', () => {
+    const placed = [
+      { id: 'a', home_domain: 'foundations', x: 0, y: 0 },
+      { id: 'b', home_domain: 'foundations', x: 100, y: 50 },
+      { id: 'c', home_domain: 'web-development' },
+    ]
+    const [box, ...rest] = groupBoxes(placed, DOMAINS, 1)
+    expect(rest).toEqual([])
+    // 50 to each side and 40 below for labels, 20 above plus room for the domain's name.
+    expect(box).toMatchObject({ id: 'foundations', name: 'Foundations', x: -50, width: 200 })
+    expect(box.y).toBe(-20 - 20)
+    expect(box.height).toBe(50 + 20 + 40 + 20)
+    // Zoomed out, the name is drawn larger, so it gets more room.
+    expect(groupBoxes(placed, DOMAINS, LABEL_MIN_SCALE / 2)[0].y).toBeLessThan(box.y)
+  })
+
+  it('draws each domain behind its topics, with its name larger when zoomed out', () => {
+    const placed = nodes.map((n, i) => ({ ...n, x: i * 10, y: n.home_domain === 'foundations' ? 0 : 100 }))
+    const texts = []
+    const ctx = {
+      save() {},
+      restore() {},
+      beginPath() {},
+      rect() {},
+      fill() {},
+      stroke() {},
+      fillText(text) {
+        texts.push([text, this.font])
+      },
+    }
+    const palette = { primary: '#0f766e', primaryDark: '#134e4a', link: '#cbd5e1' }
+    paintGroups(ctx, 1, placed, DOMAINS, palette)
+    paintGroups(ctx, LABEL_MIN_SCALE / 2, placed, DOMAINS, palette)
+    expect(texts.map(([text]) => text)).toEqual(['Foundations', 'Web Development', 'Foundations', 'Web Development'])
+    const size = (font) => Number.parseFloat(font.split(' ')[1])
+    // Font sizes are in graph units: the size on screen is size * scale.
+    expect(size(texts[0][1])).toBe(12)
+    expect(size(texts[2][1]) * (LABEL_MIN_SCALE / 2)).toBeCloseTo(20)
   })
 })

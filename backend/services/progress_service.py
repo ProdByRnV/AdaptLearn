@@ -18,7 +18,7 @@ from models import QuizAttempt, QuizIntegrity, TopicProgress, TopicStatus
 from seed.curriculum import DEFAULT_DOMAIN
 from services.bkt import mastery_reached
 from services.learning_path import get_learning_path
-from services.topic_service import effective_state, get_progress_map, get_topics, percent_of, to_percent
+from services.topic_service import domain_name, effective_state, get_progress_map, get_topics, percent_of, to_percent
 
 RECENT_ATTEMPTS_LIMIT = 5
 
@@ -120,6 +120,7 @@ def build_dashboard(db: Session, user_id: int, domain: str = DEFAULT_DOMAIN) -> 
 
     return {
         "domain": domain,
+        "domain_name": domain_name(domain),
         "onboarded": path["onboarded"],
         "curriculum_complete": path["curriculum_complete"],
         "stats": stats,

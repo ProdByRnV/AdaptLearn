@@ -8,8 +8,9 @@ import { difficultyLabel } from '@/lib/topics'
 /**
  * The graph as text: every topic grouped by status, each one a button that opens the same detail
  * panel. The keyboard and screen-reader way through the curriculum, since the canvas is visual only.
+ * With `domainNames` (the whole map), each topic also names the domain that defines it.
  */
-export function TopicList({ topics, selectedId, onSelect }) {
+export function TopicList({ topics, selectedId, onSelect, domainNames = null }) {
   return (
     <div className="flex flex-col gap-6">
       {TOPIC_STATUS_ORDER.map((status) => {
@@ -37,7 +38,8 @@ export function TopicList({ topics, selectedId, onSelect }) {
                     )}
                   >
                     <span className="font-medium text-ink">{topic.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
+                    <span className={cn('shrink-0 text-xs', topic.id === selectedId ? 'text-body' : 'text-muted-foreground')}>
+                      {domainNames && `${domainNames.get(topic.home_domain) ?? topic.home_domain} · `}
                       {difficultyLabel(topic.difficulty)} · {formatPercent(topic.mastery)}
                     </span>
                   </button>

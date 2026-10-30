@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 
 import { EmptyState } from '@/components/common/EmptyState'
 import { Button } from '@/components/ui/button'
+import { useBackLink } from '@/hooks/useBackLink'
 
 const ENDINGS = {
   expired: {
@@ -13,7 +14,7 @@ const ENDINGS = {
   submitted: {
     icon: CircleSlash,
     title: 'This quiz was already submitted',
-    description: 'It may have been finished in another tab. Your result is on the dashboard.',
+    description: "It may have been finished in another tab. Your result is on the domain's dashboard.",
   },
   missing: {
     icon: SearchX,
@@ -25,6 +26,7 @@ const ENDINGS = {
 /** The quiz can't continue: it expired, was submitted elsewhere, or no longer exists. */
 export function QuizEnded({ reason, onRestart }) {
   const { icon, title, description } = ENDINGS[reason] ?? ENDINGS.missing
+  const back = useBackLink()
   return (
     <EmptyState
       icon={icon}
@@ -34,7 +36,7 @@ export function QuizEnded({ reason, onRestart }) {
         <div className="flex flex-wrap justify-center gap-2">
           <Button onClick={onRestart}>Start a new quiz</Button>
           <Button asChild variant="outline">
-            <Link to="/dashboard">Back to dashboard</Link>
+            <Link to={back.to}>{back.label}</Link>
           </Button>
         </div>
       }

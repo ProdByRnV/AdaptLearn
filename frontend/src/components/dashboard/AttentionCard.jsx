@@ -1,6 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import { Link } from 'react-router'
-
+import { QuizLink } from '@/components/topics/QuizLink'
 import { ResourceList } from '@/components/topics/ResourceList'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -31,9 +30,9 @@ export function AttentionCard({ topic }) {
         </div>
       )}
       <Button asChild variant="outline" className="mt-auto h-9 w-full">
-        <Link to={`/quiz/${encodeURIComponent(topic.id)}`} aria-label={`Retry quiz: ${topic.name}`}>
+        <QuizLink to={`/quiz/${encodeURIComponent(topic.id)}`} aria-label={`Retry quiz: ${topic.name}`}>
           Retry quiz
-        </Link>
+        </QuizLink>
       </Button>
     </Card>
   )
