@@ -2,7 +2,8 @@
 
 How Mobile Apps Work is the starting topic. Learners can follow one platform (Kotlin, Swift, React
 Native, Flutter or a progressive web app) and then the topics every app needs. The rest builds on
-Foundations and, for React Native and PWAs, on Web Development.
+Foundations and, for React Native and PWAs, on Web Development; Designing for Mobile builds on
+Usability Heuristics & UX Laws from UI/UX Design, where it is also shared.
 """
 
 from seed.model import Domain, Topic, article, docs, video
@@ -234,6 +235,7 @@ TOPICS: tuple[Topic, ...] = (
 
 PREREQUISITES: tuple[tuple[str, str], ...] = (
     ("app_mobile_landscape", "app_mobile_ux"),
+    ("ux_heuristics", "app_mobile_ux"),
     ("app_mobile_landscape", "app_kotlin_basics"),
     ("programming_concepts", "app_kotlin_basics"),
     ("app_mobile_landscape", "app_swift_basics"),

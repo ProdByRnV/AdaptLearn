@@ -1,0 +1,368 @@
+"""Curated fallback questions for Game Development. Code is Markdown."""
+
+from seed.questions import Bank, q
+
+QUESTIONS: Bank = {
+    # --- Making games -----------------------------------------------------------------------
+    "game_what_is_gamedev": [
+        q("What is a game engine?",
+          "Software that provides rendering, physics, audio and tools for making games",
+          ("A graphics card designed only for running games", "A program that sells games to players online",
+           "A file format for storing finished game levels"),
+          "Engines such as Godot, Unity and Unreal handle the common work, so a team can focus on what makes "
+          "its game different."),
+        q("Why do game teams build a rough prototype before making polished art?",
+          "To find out cheaply whether the core idea is fun", ("Because app stores require a prototype first",
+                                                              "Because engines can't load finished art at the start",
+                                                              "To make the final game run faster on old devices"),
+          "A playable prototype with placeholder shapes shows whether the mechanics work before money is spent "
+          "on art, sound and levels."),
+        q("Which role on a game team decides the rules, goals and challenges of play?",
+          "The game designer", ("The sound designer", "The community manager", "The QA tester"),
+          "Designers define how the game plays; programmers, artists and audio designers build it, and testers "
+          "look for problems."),
+    ],
+    "game_design_basics": [
+        q("In the MDA framework, what are the three layers?",
+          "Mechanics, dynamics and aesthetics", ("Models, data and animation", "Maps, dialogue and audio",
+                                                 "Movement, damage and armour"),
+          "Mechanics are the rules, dynamics are the behaviour that emerges when people play, and aesthetics are "
+          "the feelings players have."),
+        q("What is a game's core loop?",
+          "The main set of actions the player repeats, such as explore, fight, collect",
+          ("The code loop that draws each frame on screen", "The music track that plays on repeat",
+           "The tutorial a player must finish before playing"),
+          "A strong core loop is satisfying on its own; most other systems in the game build on it."),
+        q("Why is quick, clear feedback important when a player acts?",
+          "It tells the player what their action did", ("It makes the game file smaller to download",
+                                                        "It stops the game from needing a save system",
+                                                        "It lets the game skip collision detection"),
+          "Sounds, animations and numbers that respond at once help players learn the rules and make actions "
+          "feel satisfying."),
+    ],
+    "game_loop": [
+        q("What three things does a typical game loop do every frame?",
+          "Process input, update the game state, render the frame",
+          ("Load the level, save the game, quit the program", "Compile the code, test it, deploy it",
+           "Download assets, unzip them, delete them"),
+          "The loop repeats many times a second. Each pass reads input, advances the simulation and draws the "
+          "result."),
+        q("Why multiply movement by delta time (the time since the last frame)?",
+          "So objects move at the same speed whatever the frame rate", ("So the game uses less memory",
+                                                                         "So the game always runs at 60 frames per second",
+                                                                         "So collisions are checked twice per frame"),
+          "At 30 fps each frame is twice as long as at 60 fps, so moving speed × delta time covers the same "
+          "distance per second either way."),
+        q("Why do many games run physics with a fixed time step?",
+          "Physics with a constant step stays stable and repeatable",
+          ("Fixed steps let the game skip drawing frames", "Physics engines can't measure elapsed time",
+           "A fixed step makes the screen refresh faster"),
+          "Variable steps can make simulations jitter or explode. A fixed step, with leftover time carried over, "
+          "gives consistent results."),
+    ],
+    "game_vectors": [
+        q("What does normalising a vector do?",
+          "Keeps its direction but makes its length 1", ("Sets every component to zero",
+                                                         "Rotates it by 90 degrees", "Doubles its length"),
+          "Unit vectors represent pure direction. Multiply one by a speed to move at that speed in that "
+          "direction."),
+        q("A player moves diagonally by adding the vectors (1, 0) and (0, 1) without normalising. What goes wrong?",
+          "They move about 41% faster diagonally", ("They move half as fast diagonally",
+                                                     "They can't move diagonally at all", "They move backwards"),
+          "The vector (1, 1) has length \\(\\sqrt{2} \\approx 1.41\\). Normalising the input direction fixes the "
+          "speed boost."),
+        q("The dot product of two unit vectors is positive. What does that tell you?",
+          "They point less than 90 degrees apart", ("They point in exactly opposite directions",
+                                                     "They are exactly perpendicular", "One of them has zero length"),
+          "For unit vectors the dot product is the cosine of the angle between them, handy for checking whether "
+          "an enemy is in front of the player."),
+    ],
+    "game_engines": [
+        q("In an entity-component design, how is a player character usually built?",
+          "From components such as a sprite, a collider and a movement script",
+          ("From one large class containing every feature", "From a single image with no code attached",
+           "From a database table of player scores"),
+          "Components can be mixed and reused, so a crate and an enemy can share a collider without sharing a "
+          "class."),
+        q("Which of these engines is free and open source under the MIT licence?",
+          "Godot", ("Unity", "Unreal Engine", "GameMaker"),
+          "Godot is community-developed and MIT licensed. Unity and Unreal are proprietary, with their own "
+          "licence terms."),
+        q("What does it mean that an engine can export to many platforms?",
+          "The same project can be built for PC, mobile, web or consoles",
+          ("The engine runs only in a web browser", "Each platform needs a completely new project",
+           "The game must be uploaded before it can run"),
+          "Engines hide platform differences, though each target still needs testing and sometimes platform "
+          "specific settings."),
+    ],
+    "game_transforms": [
+        q("What three things does a 2D or 3D transform usually describe?",
+          "Position, rotation and scale", ("Colour, texture and opacity", "Speed, mass and friction",
+                                            "Volume, pitch and balance"),
+          "A transform places an object in space. Engines store it as a matrix or as separate translation, "
+          "rotation and scale."),
+        q("A sword is a child of a hand node. What happens when the hand moves?",
+          "The sword moves with it, keeping its local offset", ("The sword stays where it was in the world",
+                                                                "The sword is deleted", "The hand snaps to the sword"),
+          "A child's transform is relative to its parent, so its world transform is the parent's transform "
+          "combined with its own."),
+        q("Why does the order of combining rotation and translation matter?",
+          "Rotating then moving gives a different result from moving then rotating",
+          ("It doesn't matter: the result is always the same", "Translation must always be stored as text",
+           "Rotation only works on objects at the origin"),
+          "Matrix multiplication isn't commutative. Rotating after moving swings the object around the origin "
+          "instead of turning it in place."),
+    ],
+    # --- Engines --------------------------------------------------------------------------------
+    "game_godot": [
+        q("In Godot, what is a scene?",
+          "A tree of nodes that can be saved and reused", ("A single image shown on the title screen",
+                                                           "A script written in C++", "The window the game runs in"),
+          "Scenes can be instanced inside other scenes, so a player, an enemy and a whole level are all "
+          "scenes."),
+        q("What are signals used for in Godot?",
+          "Letting a node announce an event that other nodes react to",
+          ("Sending data to a multiplayer server", "Drawing lines between nodes in the editor",
+           "Measuring the frame rate of the game"),
+          "A button emits `pressed` and a connected function runs, so nodes don't need direct references to "
+          "each other."),
+        q("Which Godot callback runs at a fixed rate and suits movement with physics?",
+          "`_physics_process(delta)`", ("`_ready()`", "`_init()`", "`_enter_tree()`"),
+          "`_process` runs once per drawn frame; `_physics_process` runs at the physics tick rate, 60 times a "
+          "second by default."),
+    ],
+    "game_unity": [
+        q("In Unity, what is a prefab?",
+          "A saved GameObject template that can be placed many times",
+          ("A built-in shader for water", "A script that runs before the game starts",
+           "The scene the game opens first"),
+          "Changing the prefab updates every instance, which suits enemies, pickups and other repeated "
+          "objects."),
+        q("In a Unity C# script, when does `Update()` run?",
+          "Once every frame", ("Once, when the scene loads", "Only when the object collides with something",
+                                "Once a second"),
+          "`Start()` runs once before the first frame; `Update()` runs every frame and `FixedUpdate()` at the "
+          "physics rate."),
+        q("How do you add behaviour to a GameObject in Unity?",
+          "Attach components, such as your own scripts", ("Rename the GameObject",
+                                                          "Change the scene's file name", "Edit the engine's source code"),
+          "Unity GameObjects are containers; components such as a Rigidbody, a Collider or a MonoBehaviour "
+          "script give them behaviour."),
+    ],
+    # --- Building blocks of a game ---------------------------------------------------------------
+    "game_input": [
+        q("Why map input to actions such as \"jump\" instead of reading specific keys in code?",
+          "So players can rebind controls and gamepads work too",
+          ("So the game doesn't need a keyboard driver", "So input is only read once per level",
+           "So the game can skip the game loop"),
+          "The code asks whether \"jump\" was pressed; a settings screen decides which key or button that "
+          "means."),
+        q("What is the difference between polling input and handling input events?",
+          "Polling checks the state each frame; events arrive when something changes",
+          ("Polling is only for gamepads; events are only for keyboards",
+           "Polling is faster but never works on mobile", "There is no difference between them"),
+          "Polling suits held keys such as movement; events suit one-off actions such as opening a menu."),
+        q("What is input buffering, as used in many action games?",
+          "Remembering a press briefly so it still counts slightly early",
+          ("Recording every key press to a log file", "Disabling input while a level loads",
+           "Sending input to the server in batches"),
+          "A jump pressed a few frames before landing still happens, which makes controls feel fair and "
+          "responsive."),
+    ],
+    "game_physics": [
+        q("How do you check whether two axis-aligned rectangles (AABBs) overlap?",
+          "They overlap if they overlap on both the x axis and the y axis",
+          ("They overlap if their centres are at the same height", "They overlap if their colours match",
+           "They overlap if one is wider than the other"),
+          "If there is a gap on either axis, they can't be touching; this check is cheap and widely used."),
+        q("What is a trigger area (an area or sensor) in a physics engine?",
+          "A shape that detects overlaps without blocking movement",
+          ("A solid wall that nothing can pass through", "A sound that plays on collision",
+           "A timer that starts the level"),
+          "Triggers suit pickups, checkpoints and damage zones: the engine reports the overlap but doesn't push "
+          "objects apart."),
+        q("Why can a fast bullet pass straight through a thin wall?",
+          "It moves past the wall between two physics steps", ("The wall has no colour",
+                                                               "Bullets are never checked for collisions",
+                                                               "The wall is too heavy to detect"),
+          "This is called tunnelling. Continuous collision detection or ray casts along the path prevent it."),
+    ],
+    "game_2d_graphics": [
+        q("What is a sprite sheet?",
+          "One image holding many frames or sprites", ("A spreadsheet of player statistics",
+                                                       "A list of sound effects", "A document describing each level"),
+          "Packing frames into one texture is efficient to load and draw; the engine shows one region at a "
+          "time."),
+        q("Why build 2D levels from a tilemap?",
+          "Large levels are made from small reusable tiles", ("Tilemaps make every level 3D",
+                                                              "Tiles remove the need for collisions",
+                                                              "Tilemaps play the background music"),
+          "Tiles save memory and effort, and engines can give tiles collision shapes so floors and walls work "
+          "automatically."),
+        q("What usually decides which 2D sprite appears in front of another?",
+          "Their draw order, layer or z-index", ("Which file is larger", "Which sprite was named first",
+                                                  "Which sprite has more colours"),
+          "Things drawn later cover things drawn earlier; games often sort by y position so lower characters "
+          "appear in front."),
+    ],
+    "game_state_machines": [
+        q("What is a finite state machine?",
+          "Something that is in one state at a time and changes on defined transitions",
+          ("A machine that only runs for a fixed number of frames", "A database of every object in a level",
+           "A tool for measuring frame rate"),
+          "A player might be idle, running or jumping; rules decide when it switches, which avoids tangled "
+          "flags."),
+        q("Why use a state machine for a player instead of many separate true/false flags?",
+          "It rules out impossible combinations such as jumping while ducking",
+          ("It makes the game load faster", "It removes the need for animations",
+           "It lets the player be in every state at once"),
+          "With flags, every combination has to be handled. A state machine has one current state and clear "
+          "transitions."),
+        q("Which of these is a typical game-level state?",
+          "Paused", ("Normalised", "Compiled", "Rasterised"),
+          "Games commonly move between states such as main menu, playing, paused and game over."),
+    ],
+    "game_audio": [
+        q("What is an audio bus used for in a game engine?",
+          "Grouping sounds so their volume and effects can be set together",
+          ("Downloading new music tracks from the internet while playing",
+           "Converting the players' speech into on-screen text", "Storing every sound file compressed on the disk"),
+          "Separate music, effects and voice buses let players set each volume in the options menu."),
+        q("What does positional (spatial) audio do?",
+          "Makes sounds louder or softer and panned by where they are",
+          ("Plays every sound at the same volume wherever it comes from",
+           "Stops all sounds automatically whenever the player pauses", "Speeds the music up as the player moves faster"),
+          "A footstep to the player's left sounds from the left, which helps players locate things."),
+        q("Why do games often vary the pitch of a repeated sound slightly?",
+          "So repeated sounds don't feel robotic", ("So the sound file is smaller", "So the music stays in tune",
+                                                     "So the sound plays in mono"),
+          "Hearing exactly the same sample many times is tiring; small random changes keep it natural."),
+    ],
+    "game_feel": [
+        q("In game design, what does \"juice\" mean?",
+          "Extra feedback such as particles, shake and sound",
+          ("The battery power a game uses on a phone", "Hidden levels unlocked by a secret code",
+           "Money earned by players inside the game"),
+          "Juice doesn't change the rules; it makes them feel good, though too much can make a game hard to "
+          "read."),
+        q("What is \"coyote time\" in a platform game?",
+          "A short window to still jump just after walking off a ledge",
+          ("A timer that ends the level early", "A cheat code that gives extra lives",
+           "A slow-motion effect when the player dies"),
+          "It forgives presses that come a few frames late, so jumps feel fair instead of eaten."),
+        q("What should a HUD (heads-up display) mainly show?",
+          "The information the player needs right now, such as health",
+          ("Every setting from the options menu, all at once", "The full credits for everyone who made the game",
+           "The source code of the current level"),
+          "A good HUD is glanceable; less important information belongs in menus."),
+    ],
+    "game_level_design": [
+        q("What is a common way to teach a new mechanic through a level?",
+          "Introduce it safely, then test it, then twist it", ("Explain it in a long text box",
+                                                                "Hide it until the final level",
+                                                                "Make the first use of it deadly"),
+          "Players learn by doing: a safe first encounter, then challenges and finally a surprising variation."),
+        q("What is a blockout in level design?",
+          "A rough version of a level built from simple shapes for testing",
+          ("The final, fully decorated version of a level", "A list of bugs found by testers",
+           "A screen that hides loading times"),
+          "Blocking out first means layout problems are found and fixed before time is spent on art."),
+        q("Which technique guides players without on-screen instructions?",
+          "Using light, colour and landmarks to draw the eye", ("Locking the camera to the floor",
+                                                               "Removing all paths but one wall",
+                                                               "Disabling the pause menu"),
+          "A lit doorway or a distinct tower tells players where to go while letting them feel they chose."),
+    ],
+    # --- Going further ----------------------------------------------------------------------------
+    "game_3d_graphics": [
+        q("What are 3D models in games usually made of?",
+          "Meshes of triangles", ("Rows of text characters", "Single pixels with no shape",
+                                   "Sound waves"),
+          "GPUs are built to draw huge numbers of triangles; vertices hold positions and other data such as "
+          "normals and texture coordinates."),
+        q("What is a fragment (pixel) shader for?",
+          "Working out the colour of each pixel a shape covers", ("Loading models from disk",
+                                                                  "Playing sounds when objects collide",
+                                                                  "Saving the player's progress"),
+          "Vertex shaders position vertices; fragment shaders colour pixels, using textures and lighting."),
+        q("What does a perspective camera do that an orthographic camera doesn't?",
+          "Makes distant objects appear smaller", ("Shows the scene in black and white",
+                                                    "Removes all lighting from the scene",
+                                                    "Draws only the objects nearest the camera"),
+          "Perspective mimics how eyes see depth; orthographic keeps sizes the same at any distance, as in many "
+          "strategy games."),
+    ],
+    "game_ai": [
+        q("Why is A* usually faster than Dijkstra's algorithm for finding a path to one target?",
+          "A heuristic estimate steers the search towards the goal",
+          ("A* ignores walls and obstacles", "A* only works on paths with no turns",
+           "A* stores no information while searching"),
+          "A* adds an estimate of the remaining distance to the cost so far, so it explores fewer nodes. With "
+          "an admissible heuristic it still finds a shortest path."),
+        q("What is a navigation mesh (navmesh)?",
+          "Polygons marking where characters can walk", ("A wireframe drawing of a character's body",
+                                                         "A network connection between players",
+                                                         "A list of the game's sound effects"),
+          "Pathfinding runs over the navmesh's polygons, which describe walkable space more compactly than a fine "
+          "grid."),
+        q("An enemy patrols, chases the player when seen and flees at low health. What suits this behaviour?",
+          "A state machine or behaviour tree", ("A tilemap with collision layers", "An audio bus with effects",
+                                               "A sprite sheet of enemy poses"),
+          "Both organise decisions: state machines switch between states, and behaviour trees pick actions by "
+          "checking conditions in order."),
+    ],
+    "game_multiplayer": [
+        q("Why do many online games use an authoritative server?",
+          "The server decides what really happened, which makes cheating harder",
+          ("The server draws every player's graphics and streams them",
+           "It removes all network latency between the players", "It lets online games keep running without the internet"),
+          "Clients send inputs and the server runs the true simulation, so a modified client can't simply claim "
+          "it won."),
+        q("What does client-side prediction do?",
+          "Shows the player's own action at once before the server confirms it",
+          ("Guesses which player is most likely to win the match",
+           "Downloads the next level in advance while the player plays",
+           "Predicts how much bandwidth the player's connection has"),
+          "Without it, every move would wait a round trip. If the server disagrees, the client corrects its "
+          "position."),
+        q("Why do fast-paced games often send updates over UDP rather than TCP?",
+          "A lost update isn't worth waiting for, since a newer one follows",
+          ("UDP encrypts data automatically", "TCP can't send data between computers",
+           "UDP guarantees every packet arrives in order"),
+          "TCP resends lost data and holds back later data until it arrives, which causes stalls; games add only "
+          "the reliability they need."),
+    ],
+    "game_optimisation": [
+        q("At 60 frames per second, roughly how much time does each frame have?",
+          "About 16.7 milliseconds", ("About 60 milliseconds", "About 1 second", "About 1.67 milliseconds"),
+          "1000 ms ÷ 60 ≈ 16.7 ms for input, logic, physics and rendering together."),
+        q("What should you do before optimising a slow game?",
+          "Profile it to find what is actually slow", ("Rewrite it in another language",
+                                                       "Remove all sound effects", "Lower the resolution of every texture"),
+          "Guessing wastes effort. A profiler shows which code or rendering work uses the frame time."),
+        q("What is object pooling?",
+          "Reusing objects such as bullets instead of creating and destroying them",
+          ("Storing all the game's objects together in one big image",
+           "Merging every level of the game into one large scene",
+           "Sharing the same objects between players over the network"),
+          "Creating and freeing many objects can cause stutters from allocation and garbage collection; a pool "
+          "recycles them."),
+    ],
+    "game_shipping": [
+        q("During a playtest, what should the developer usually do when a player gets stuck?",
+          "Watch and take notes without helping", ("Take the controller and show them",
+                                                   "Explain how the level was meant to work",
+                                                   "Skip to the next level for them"),
+          "Players at home won't have the developer beside them; where they struggle shows what needs fixing."),
+        q("What does exporting a game in an engine produce?",
+          "A build players can run on a chosen platform", ("A list of the project's bugs",
+                                                           "A copy of the engine's source code", "A trailer video for the store"),
+          "Exporting packages the game's code and assets for a target such as Windows, Android or the web."),
+        q("Why do developers release early builds or demos before launch?",
+          "To get feedback and fix problems while changes are still cheap",
+          ("Because stores ban games without a demo", "To avoid having to test the final game",
+           "Because final builds can't include sound"),
+          "Feedback from real players, through demos, betas or early access, shapes the game before its full "
+          "release."),
+    ],
+}

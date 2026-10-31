@@ -23,7 +23,9 @@ from seed.domains.cybersecurity import CYBERSECURITY
 from seed.domains.data_science import DATA_SCIENCE
 from seed.domains.databases import DATABASES
 from seed.domains.foundations import FOUNDATIONS
+from seed.domains.game_development import GAME_DEVELOPMENT
 from seed.domains.python import PYTHON
+from seed.domains.ui_ux_design import UI_UX_DESIGN
 from seed.domains.web_development import WEB_DEVELOPMENT
 
 # ARCHITECTURE.md section 7: id -> difficulty
@@ -52,7 +54,7 @@ def test_real_curriculum_is_valid():
 def test_domains_and_default():
     assert [d.id for d in DOMAINS] == [
         "foundations", "web-development", "python", "data-science", "ai-ml", "databases", "cs-core",
-        "cybersecurity", "cloud-devops", "blockchain", "app-development",
+        "cybersecurity", "cloud-devops", "blockchain", "app-development", "game-development", "ui-ux-design",
     ]
     assert DEFAULT_DOMAIN == "web-development"
     assert DOMAIN_BY_ID["web-development"].name == "Web Development"
@@ -385,7 +387,7 @@ def test_blockchain_topics_and_difficulties():
 
 def test_app_development_topics_and_difficulties():
     assert {t.id: t.difficulty for t in APP_DEVELOPMENT.topics} == EXPECTED_APP_DEVELOPMENT
-    assert len(APP_DEVELOPMENT.prerequisites) == 36
+    assert len(APP_DEVELOPMENT.prerequisites) == 37
     assert APP_DEVELOPMENT.shared == ()
 
 
@@ -414,6 +416,7 @@ def test_blockchain_and_app_development_build_on_earlier_domains():
         ("data_formats", "app_networking"),
         ("sql_basics", "app_local_storage"),
         ("security_basics", "app_permissions_privacy"),
+        ("ux_heuristics", "app_mobile_ux"),
     }
 
 
@@ -422,6 +425,59 @@ def test_every_blockchain_topic_stays_technical():
     for topic in BLOCKCHAIN.topics:
         text = f"{topic.name} {topic.description}".lower()
         assert not any(word in text for word in ("invest", "trading", "profit", "price prediction", "get rich")), topic.id
+
+
+# --- Game Development and UI/UX Design --------------------------------------------------------
+
+EXPECTED_GAME_DEVELOPMENT = {
+    "game_what_is_gamedev": 1, "game_design_basics": 2, "game_loop": 2, "game_vectors": 2, "game_engines": 2,
+    "game_transforms": 3, "game_godot": 3, "game_unity": 3, "game_input": 3, "game_physics": 3,
+    "game_2d_graphics": 3, "game_state_machines": 3, "game_audio": 3, "game_feel": 3, "game_level_design": 3,
+    "game_3d_graphics": 4, "game_ai": 4, "game_multiplayer": 4, "game_optimisation": 4, "game_shipping": 4,
+}
+EXPECTED_UI_UX_DESIGN = {
+    "ux_what_is": 1, "ux_user_research": 2, "ux_personas_journeys": 2, "ux_information_architecture": 2,
+    "ux_heuristics": 2, "ux_visual_hierarchy": 2, "ux_typography": 2, "ux_colour": 2, "ux_wireframing": 2,
+    "ux_interaction_design": 3, "ux_accessible_design": 3, "ux_figma": 3, "ux_prototyping": 3,
+    "ux_writing_forms": 3, "ux_usability_testing": 3, "ux_ethics": 3, "ux_design_systems": 4, "ux_metrics": 4,
+    "ux_handoff": 4,
+}
+
+
+def test_game_development_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in GAME_DEVELOPMENT.topics} == EXPECTED_GAME_DEVELOPMENT
+    assert len(GAME_DEVELOPMENT.prerequisites) == 30
+    assert GAME_DEVELOPMENT.shared == ()
+
+
+def test_ui_ux_design_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in UI_UX_DESIGN.topics} == EXPECTED_UI_UX_DESIGN
+    assert len(UI_UX_DESIGN.prerequisites) == 25
+    assert UI_UX_DESIGN.shared == ("app_mobile_ux",)
+
+
+def test_starting_topics_of_game_development_and_ui_ux_design():
+    assert [i for i in GAME_DEVELOPMENT.topic_ids if not _needs(i)] == ["game_what_is_gamedev"]
+    assert [i for i in UI_UX_DESIGN.topic_ids if not _needs(i)] == ["ux_what_is"]
+
+
+def test_game_development_and_ui_ux_design_build_on_earlier_domains():
+    assert _edges_into(GAME_DEVELOPMENT) == {
+        ("programming_concepts", "game_loop"),
+        ("programming_concepts", "game_godot"),
+        ("programming_concepts", "game_unity"),
+        ("cs_graphs", "game_ai"),
+        ("how_the_internet_works", "game_multiplayer"),
+        ("cs_complexity", "game_optimisation"),
+    }
+    assert _edges_into(UI_UX_DESIGN) == {("css_basics", "ux_handoff")}
+
+
+def test_designing_for_mobile_is_shared_by_app_development_and_ui_ux_design():
+    # Defined once in App Development, listed in UI/UX Design, and connected to both through its prerequisites.
+    assert "app_mobile_ux" in {t.id for t in APP_DEVELOPMENT.topics}
+    assert "app_mobile_ux" in UI_UX_DESIGN.topic_ids
+    assert _needs("app_mobile_ux") == {"app_mobile_landscape", "ux_heuristics"}
 
 
 def test_every_domain_has_a_starting_topic():
@@ -442,7 +498,7 @@ def test_every_topic_can_be_reached():
 
 def test_pool_holds_every_topic_once():
     ids = [t.id for t in TOPICS]
-    assert len(ids) == len(set(ids)) == 207
+    assert len(ids) == len(set(ids)) == 246
     assert set(ids) == {i for d in DOMAINS for i in d.topic_ids}
 
 

@@ -17,7 +17,9 @@ from seed.domains.cybersecurity import CYBERSECURITY
 from seed.domains.data_science import DATA_SCIENCE
 from seed.domains.databases import DATABASES
 from seed.domains.foundations import FOUNDATIONS
+from seed.domains.game_development import GAME_DEVELOPMENT
 from seed.domains.python import PYTHON
+from seed.domains.ui_ux_design import UI_UX_DESIGN
 from seed.domains.web_development import WEB_DEVELOPMENT
 from seed.model import RESOURCE_TYPES, Domain, Resource, Topic
 
@@ -28,7 +30,7 @@ __all__ = [
 
 DOMAINS: tuple[Domain, ...] = (
     FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML, DATABASES, CS_CORE, CYBERSECURITY,
-    CLOUD_DEVOPS, BLOCKCHAIN, APP_DEVELOPMENT,
+    CLOUD_DEVOPS, BLOCKCHAIN, APP_DEVELOPMENT, GAME_DEVELOPMENT, UI_UX_DESIGN,
 )
 DOMAIN_BY_ID: dict[str, Domain] = {d.id: d for d in DOMAINS}
 

@@ -538,7 +538,7 @@ def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm
         ROOT, "html_basics", "javascript_fundamentals", "sql_basics", "command_line_basics", "how_the_internet_works",
         "how_computers_work", "programming_concepts", "python_basics", "ds_descriptive_stats", "ml_what_is_ml",
         "ml_linear_algebra", "db_data_models", "cs_complexity", "sec_principles", "devops_culture",
-        "bc_what_is_blockchain", "app_mobile_landscape",
+        "bc_what_is_blockchain", "app_mobile_landscape", "game_what_is_gamedev", "ux_what_is",
     }
     assert progress_row(db, user_id, ROOT).status == "in_progress"
     nodes = {n["id"]: n for n in client.get("/api/topics/graph", headers=headers).json()["nodes"]}

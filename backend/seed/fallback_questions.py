@@ -10,7 +10,9 @@ from seed.questions.cybersecurity import QUESTIONS as CYBERSECURITY
 from seed.questions.data_science import QUESTIONS as DATA_SCIENCE
 from seed.questions.databases import QUESTIONS as DATABASES
 from seed.questions.foundations import QUESTIONS as FOUNDATIONS
+from seed.questions.game_development import QUESTIONS as GAME_DEVELOPMENT
 from seed.questions.python import QUESTIONS as PYTHON
+from seed.questions.ui_ux_design import QUESTIONS as UI_UX_DESIGN
 from seed.questions.web_development import QUESTIONS as WEB_DEVELOPMENT
 
 
@@ -26,5 +28,5 @@ def merge(*banks: Bank) -> Bank:
 
 FALLBACK_QUESTIONS: Bank = merge(
     FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML, DATABASES, CS_CORE, CYBERSECURITY,
-    CLOUD_DEVOPS, BLOCKCHAIN, APP_DEVELOPMENT,
+    CLOUD_DEVOPS, BLOCKCHAIN, APP_DEVELOPMENT, GAME_DEVELOPMENT, UI_UX_DESIGN,
 )
