@@ -20,7 +20,7 @@ ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
 # Starting topics in other domains: unlocked for everyone, since a topic's status isn't tied to a domain.
 OTHER_ROOTS = {
     "command_line_basics", "how_the_internet_works", "how_computers_work", "programming_concepts", "python_basics",
-    "ds_descriptive_stats", "ml_what_is_ml", "ml_linear_algebra",
+    "ds_descriptive_stats", "ml_what_is_ml", "ml_linear_algebra", "db_data_models", "cs_complexity",
 }
 NAMES = {t.id: t.name for t in TOPICS}
 
@@ -181,7 +181,8 @@ def test_all_topics_known(client, make_user, db):
     rows = rows_for(db, user_id)
     assert ids_with_status(rows, "completed") == ALL_IDS
     assert all(rows[t].p_know == 0.95 for t in ALL_IDS)
-    assert ids_with_status(rows, "unlocked") == OTHER_ROOTS  # other domains are untouched
+    # Other domains keep their starting topics, plus what SQL Basics alone opens in Databases.
+    assert ids_with_status(rows, "unlocked") == OTHER_ROOTS | {"db_sql_joins", "db_sql_aggregation"}
 
 
 def test_invalid_topic_ids_rejected_without_writing_anything(client, make_user, db):

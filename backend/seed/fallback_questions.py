@@ -2,7 +2,9 @@
 
 from seed.questions import Bank
 from seed.questions.ai_ml import QUESTIONS as AI_ML
+from seed.questions.cs_core import QUESTIONS as CS_CORE
 from seed.questions.data_science import QUESTIONS as DATA_SCIENCE
+from seed.questions.databases import QUESTIONS as DATABASES
 from seed.questions.foundations import QUESTIONS as FOUNDATIONS
 from seed.questions.python import QUESTIONS as PYTHON
 from seed.questions.web_development import QUESTIONS as WEB_DEVELOPMENT
@@ -18,4 +20,6 @@ def merge(*banks: Bank) -> Bank:
     return merged
 
 
-FALLBACK_QUESTIONS: Bank = merge(FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML)
+FALLBACK_QUESTIONS: Bank = merge(
+    FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML, DATABASES, CS_CORE,
+)

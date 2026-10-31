@@ -15,7 +15,9 @@ from seed.curriculum import (
     validate_curriculum,
 )
 from seed.domains.ai_ml import AI_ML
+from seed.domains.cs_core import CS_CORE
 from seed.domains.data_science import DATA_SCIENCE
+from seed.domains.databases import DATABASES
 from seed.domains.foundations import FOUNDATIONS
 from seed.domains.python import PYTHON
 from seed.domains.web_development import WEB_DEVELOPMENT
@@ -44,7 +46,9 @@ def test_real_curriculum_is_valid():
 
 
 def test_domains_and_default():
-    assert [d.id for d in DOMAINS] == ["foundations", "web-development", "python", "data-science", "ai-ml"]
+    assert [d.id for d in DOMAINS] == [
+        "foundations", "web-development", "python", "data-science", "ai-ml", "databases", "cs-core",
+    ]
     assert DEFAULT_DOMAIN == "web-development"
     assert DOMAIN_BY_ID["web-development"].name == "Web Development"
 
@@ -238,9 +242,76 @@ def test_every_data_science_and_ai_ml_topic_can_be_reached():
         remaining -= ready
 
 
+# --- Databases and Computer Science Core ------------------------------------------------------
+
+EXPECTED_DATABASES = {
+    "db_data_models": 1, "db_keys_constraints": 2, "db_sql_joins": 2, "db_sql_aggregation": 2,
+    "db_subqueries_ctes": 3, "db_window_functions": 3, "db_schema_design": 3, "db_indexes": 3,
+    "db_transactions": 3, "db_isolation_locking": 4, "db_python_access": 3, "db_scaling": 4,
+    "db_data_warehousing": 3, "db_nosql": 2, "db_mongodb": 3, "db_redis": 3, "db_graph_databases": 3,
+}
+EXPECTED_CS_CORE = {
+    "cs_complexity": 2, "cs_arrays_linked_lists": 2, "cs_stacks_queues": 2, "cs_hash_tables": 2, "cs_recursion": 2,
+    "cs_sorting": 3, "cs_trees": 3, "cs_heaps": 3, "cs_graphs": 3, "cs_shortest_paths": 4, "cs_greedy": 3,
+    "cs_dynamic_programming": 4, "cs_complexity_classes": 4, "cs_computer_architecture": 2,
+    "cs_processes_threads": 3, "cs_memory_management": 3, "cs_concurrency": 4, "cs_networking": 3,
+    "cs_compilers_interpreters": 3,
+}
+
+
+def test_databases_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in DATABASES.topics} == EXPECTED_DATABASES
+    assert len(DATABASES.prerequisites) == 24
+    # SQL Basics lives in Web Development and is shared, so progress on it counts in both.
+    assert DATABASES.shared == ("sql_basics",)
+
+
+def test_cs_core_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in CS_CORE.topics} == EXPECTED_CS_CORE
+    assert len(CS_CORE.prerequisites) == 27
+    assert CS_CORE.shared == ()
+
+
+def test_starting_topics_of_databases_and_cs_core():
+    assert [i for i in DATABASES.topic_ids if not _needs(i)] == ["db_data_models", "sql_basics"]
+    assert [t.id for t in CS_CORE.topics if not _needs(t.id)] == ["cs_complexity"]
+
+
+def test_databases_and_cs_core_build_on_earlier_domains():
+    assert _edges_into(DATABASES) == {
+        ("sql_basics", "db_keys_constraints"),
+        ("sql_basics", "db_sql_joins"),
+        ("sql_basics", "db_sql_aggregation"),
+        ("python_exceptions", "db_python_access"),
+        ("data_formats", "db_mongodb"),
+    }
+    assert _edges_into(CS_CORE) == {
+        ("binary_data_representation", "cs_computer_architecture"),
+        ("operating_system_basics", "cs_processes_threads"),
+        ("how_the_internet_works", "cs_networking"),
+        ("programming_concepts", "cs_compilers_interpreters"),
+    }
+
+
+def test_every_domain_has_a_starting_topic():
+    # A learner who joins a domain can always start something in it, without another domain first.
+    for domain in DOMAINS:
+        assert any(not _needs(i) for i in domain.topic_ids), domain.id
+
+
+def test_every_topic_can_be_reached():
+    done: set[str] = set()
+    remaining = {t.id for t in TOPICS}
+    while remaining:
+        ready = {i for i in remaining if _needs(i) <= done}
+        assert ready, f"unreachable: {sorted(remaining)}"
+        done |= ready
+        remaining -= ready
+
+
 def test_pool_holds_every_topic_once():
     ids = [t.id for t in TOPICS]
-    assert len(ids) == len(set(ids)) == 96
+    assert len(ids) == len(set(ids)) == 132
     assert set(ids) == {i for d in DOMAINS for i in d.topic_ids}
 
 
