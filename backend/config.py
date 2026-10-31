@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     groq_model: str = "openai/gpt-oss-120b"
     # Only sent to reasoning models (e.g. gpt-oss); empty means "don't send".
     groq_reasoning_effort: str = "low"
+    # The answer check (Phase 25): a second call answers each new question independently and rejects
+    # any whose key it disagrees with. Medium effort catches questions with two correct options.
+    quiz_answer_check: bool = True
+    groq_check_reasoning_effort: str = "medium"
 
     quiz_session_ttl_minutes: int = 30
     # Proctoring (Phase 12.5): per-question time limit and quiz generation limits.

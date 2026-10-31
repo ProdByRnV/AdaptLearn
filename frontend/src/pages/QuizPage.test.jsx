@@ -68,10 +68,11 @@ afterEach(() => {
   delete window.screen.isExtended
 })
 
-async function open(topic = 'html_basics', { timers = false } = {}) {
+/** Open the quiz page for a topic, optionally as if from another page (`state`, e.g. {from: '/home'}). */
+async function open(topic = 'html_basics', { timers = false, state } = {}) {
   if (timers) vi.useFakeTimers({ shouldAdvanceTime: true })
   const user = userEvent.setup(timers ? { advanceTimers: vi.advanceTimersByTime } : {})
-  const view = renderAt(`/quiz/${topic}`)
+  const view = renderAt(state ? { pathname: `/quiz/${topic}`, state } : `/quiz/${topic}`)
   await screen.findByRole('heading', { level: 1 })
   await waitFor(() => expect(screen.queryByText('Loading quiz…')).not.toBeInTheDocument())
   return { user, ...view }
@@ -186,12 +187,12 @@ describe('preparing', () => {
     const { user } = await open('html_basics', { timers: true })
     await user.click(screen.getByRole('button', { name: 'Prepare quiz' }))
     expect(screen.getByRole('button', { name: /Preparing your questions/ })).toBeDisabled()
-    await advance(4000)
+    await advance(7000)
     expect(screen.queryByText(/taking longer than usual/)).not.toBeInTheDocument()
     await advance(1100)
     expect(
       screen.getByText(
-        "This is taking longer than usual. If the AI doesn't answer soon, you'll get questions from AdaptLearn's curated bank instead.",
+        "This is taking longer than usual. AdaptLearn writes the questions and checks every answer; if the AI doesn't finish soon, you'll get questions from the curated bank instead.",
       ),
     ).toBeInTheDocument()
   })
@@ -201,6 +202,15 @@ describe('preparing', () => {
     const { user } = await open()
     await user.click(screen.getByRole('button', { name: 'Prepare quiz' }))
     expect(await screen.findByText('Questions from the curated bank')).toBeInTheDocument()
+    expect(screen.getByText(/weren't available or didn't pass AdaptLearn's answer check/)).toBeInTheDocument()
+  })
+
+  it('says when some AI questions were swapped after the answer check', async () => {
+    generateQuiz.mockResolvedValue(quizInfo({ source: 'mixed' }))
+    const { user } = await open()
+    await user.click(screen.getByRole('button', { name: 'Prepare quiz' }))
+    expect(await screen.findByText('Some questions from the curated bank')).toBeInTheDocument()
+    expect(screen.getByText(/Those that didn't pass were swapped for curated questions/)).toBeInTheDocument()
   })
 
   it('shows the wait from Retry-After when the quiz limit is reached', async () => {
@@ -678,6 +688,26 @@ describe('the result', () => {
 })
 
 describe('code in questions', () => {
+  it('draws maths in the question and the options', async () => {
+    nextQuestion
+      .mockReset()
+      .mockResolvedValueOnce(
+        quizQuestion(1, {
+          question: 'What is \\( \\frac{1}{4} \\) as a decimal?',
+          options: ['\\( 0.25 \\)', '\\( 0.4 \\)', '\\( 4 \\)', '\\( 1.4 \\)'],
+        }),
+      )
+    const { user } = await open()
+    await user.click(screen.getByRole('button', { name: 'Prepare quiz' }))
+    await user.click(await screen.findByRole('button', { name: 'Enter fullscreen and start' }))
+    const heading = await screen.findByRole('heading', { name: /What is .* as a decimal\?/ })
+    await waitFor(() => expect(heading.querySelector('.katex annotation')).toHaveTextContent('\\frac{1}{4}'))
+    expect(heading).not.toHaveTextContent('\\(')
+    const options = screen.getAllByRole('radio')
+    expect(options).toHaveLength(4)
+    await waitFor(() => expect(document.querySelectorAll('label .katex')).toHaveLength(4))
+  })
+
   it('shows snippets as code in the question, options and review', async () => {
     const snippet = 'What is logged?\n```javascript\nlet count = 0;\nconsole.log(count)\n```'
     nextQuestion
@@ -727,17 +757,13 @@ describe('domains', () => {
     ['/map', 'Back to the knowledge graph'],
     ['/home', 'Back to home'],
   ])('leads back to the page it was opened from (%s)', async (from, label) => {
-    const user = userEvent.setup()
-    renderAt({ pathname: '/quiz/html_basics', state: { from } })
-    await screen.findByRole('heading', { level: 1 })
+    const { user } = await open('html_basics', { state: { from } })
     await takeWholeQuiz(user)
     expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', from)
   })
 
   it('keeps the way back when moving on to the next topic from the result', async () => {
-    const user = userEvent.setup()
-    const { router } = renderAt({ pathname: '/quiz/html_basics', state: { from: '/domains/web-development' } })
-    await screen.findByRole('heading', { level: 1 })
+    const { user, router } = await open('html_basics', { state: { from: '/domains/web-development' } })
     await takeWholeQuiz(user)
     await user.click(screen.getByRole('link', { name: 'Start topic: CSS Basics' }))
     expect(router.state.location.pathname).toBe('/quiz/css_basics')

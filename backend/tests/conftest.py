@@ -129,12 +129,22 @@ def sample_quiz_json() -> str:
     )
 
 
+def approve_all(quiz_json: str) -> str:
+    """An answer check agreeing with every key of a quiz."""
+    import json
+
+    keys = [q["correct"] for q in json.loads(quiz_json)["questions"]]
+    return json.dumps({"checks": [{"correct": [k], "sound": True, "reason": "Only the key is right."} for k in keys]})
+
+
 @pytest.fixture()
 def fake_llm(monkeypatch):
     """Script the LLM: each call returns (or raises) the next item in .script, else a valid quiz.
 
-    Records each call's messages and timeout in .calls. Also sets a dummy API key so the
-    Groq path (not the no-key fallback) is exercised.
+    Answer-check calls (Phase 25) are scripted separately: each returns (or raises) the next item
+    in .check_script, else a check approving every key of the last quiz returned. Records each
+    generation call's messages and timeout in .calls, and each check call in .check_calls. Also
+    sets a dummy API key so the Groq path (not the no-key fallback) is exercised.
     """
     from config import get_settings
     from services import llm_quiz
@@ -143,10 +153,19 @@ def fake_llm(monkeypatch):
         def __init__(self):
             self.script: list = []
             self.calls: list = []
+            self.check_script: list = []
+            self.check_calls: list = []
+            self.last_quiz = sample_quiz_json()
 
-        def __call__(self, messages, timeout):
-            self.calls.append({"messages": messages, "timeout": timeout})
-            item = self.script.pop(0) if self.script else sample_quiz_json()
+        def __call__(self, messages, timeout, **options):
+            if messages[0]["content"] == llm_quiz.CHECK_PROMPT:
+                self.check_calls.append({"messages": messages, "timeout": timeout, **options})
+                item = self.check_script.pop(0) if self.check_script else approve_all(self.last_quiz)
+            else:
+                self.calls.append({"messages": messages, "timeout": timeout})
+                item = self.script.pop(0) if self.script else sample_quiz_json()
+                if isinstance(item, str):
+                    self.last_quiz = item
             if isinstance(item, Exception):
                 raise item
             return item

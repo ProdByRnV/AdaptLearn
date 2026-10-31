@@ -47,3 +47,6 @@ PRD.md
 ROADMAP.md
 ARCHITECTURE.md
 UI.md
+
+# Sample AI quiz reports for content review (python -m seed.sample_quizzes) - working notes, not pushed
+content-review/

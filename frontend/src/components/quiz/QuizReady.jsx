@@ -32,13 +32,16 @@ export function QuizReady({ quiz, onBegin }) {
         <Fact label="Start within" value={`${minutes} min`} />
       </dl>
 
-      {quiz.source === 'fallback' && (
+      {(quiz.source === 'fallback' || quiz.source === 'mixed') && (
         <Alert role="status" className="border-primary/30 bg-accent/40">
           <Info aria-hidden="true" className="text-primary" />
-          <AlertTitle className="text-ink">Questions from the curated bank</AlertTitle>
+          <AlertTitle className="text-ink">
+            {quiz.source === 'fallback' ? 'Questions from the curated bank' : 'Some questions from the curated bank'}
+          </AlertTitle>
           <AlertDescription className="text-body">
-            AI question generation isn't available right now, so this quiz uses AdaptLearn's curated questions for
-            this topic. It counts the same.
+            {quiz.source === 'fallback'
+              ? "AI questions weren't available or didn't pass AdaptLearn's answer check, so this quiz uses curated questions for this topic. It counts the same."
+              : "Every AI question is checked before you see it. Those that didn't pass were swapped for curated questions on this topic. It counts the same."}
           </AlertDescription>
         </Alert>
       )}

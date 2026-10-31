@@ -126,9 +126,10 @@ function PrepareButton({ preparing, retryAt, retryAfter, onPrepare }) {
   )
 }
 
-// Generation normally takes a few seconds; when the AI is slow the server gives up after about
-// 12 s and uses the curated bank, so say so rather than leave a silent spinner.
-const SLOW_AFTER_MS = 5000
+// Writing the questions and checking every answer normally takes a few seconds; when the AI is slow
+// the server gives up after about 20 s and uses the curated bank, so say so rather than leave a
+// silent spinner.
+const SLOW_AFTER_MS = 8000
 
 function SlowPreparation() {
   const [slow, setSlow] = useState(false)
@@ -138,7 +139,9 @@ function SlowPreparation() {
   }, [])
   return (
     <p role="status" className="text-sm text-muted-foreground">
-      {slow ? "This is taking longer than usual. If the AI doesn't answer soon, you'll get questions from AdaptLearn's curated bank instead." : ''}
+      {slow
+        ? "This is taking longer than usual. AdaptLearn writes the questions and checks every answer; if the AI doesn't finish soon, you'll get questions from the curated bank instead."
+        : ''}
     </p>
   )
 }

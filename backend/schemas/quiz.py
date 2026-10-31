@@ -14,7 +14,8 @@ OPTIONS_PER_QUESTION = 4
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 
 
-def _normalise(text: str) -> str:
+def normalise(text: str) -> str:
+    """Lowercase with single spaces: how questions and options are compared for duplicates."""
     return " ".join(text.lower().split())
 
 
@@ -44,6 +45,54 @@ def _drop_placeholder_blocks(text: str) -> str:
     return _FENCED_BLOCK.sub(keep_or_drop, text).strip()
 
 
+# Maths is written in LaTeX between \( and \) inside a sentence, or \[ and \] on its own line.
+# Delimiters inside code (fenced blocks and `inline code`) are code, not maths.
+_CODE = re.compile(r"```.*?```|`[^`\n]+`", re.DOTALL)
+_MATH_SPAN = re.compile(r"\\\(.*?\\\)|\\\[.*?\\\]", re.DOTALL)
+_MATH_DELIMITER = re.compile(r"\\[()\[\]]")
+_CLOSER = {"\\(": "\\)", "\\[": "\\]"}
+# JSON turns a LaTeX command written with a single backslash into a control character: \frac and
+# \beta arrive as a form feed or backspace plus "rac"/"eta"; \times, \nabla and \rho as a tab, line
+# break or carriage return plus letters.
+_LOST_BACKSLASH = {"\t": "\\t", "\n": "\\n", "\r": "\\r"}
+
+
+def repair_maths(text: str) -> str:
+    """Give LaTeX commands back the backslash JSON turned into a control character. Form feeds and
+    backspaces never belong in quiz text; a tab, line break or carriage return followed directly by
+    a letter inside maths can only be a command."""
+    text = text.replace("\f", "\\f").replace("\b", "\\b")
+
+    def fix(span: re.Match) -> str:
+        return re.sub(r"[\t\n\r](?=[A-Za-z])", lambda m: _LOST_BACKSLASH[m.group(0)], span.group(0))
+
+    return _MATH_SPAN.sub(fix, text)
+
+
+def maths_problem(text: str) -> str | None:
+    """Why the maths delimiters outside code don't pair up (\\( closed by \\), \\[ by \\], none
+    nested), or None when they do."""
+    opened = None
+    for token in _MATH_DELIMITER.findall(_CODE.sub("", text)):
+        if token in _CLOSER:
+            if opened:
+                return f"maths opened with {opened} isn't closed before {token}"
+            opened = token
+        elif opened and _CLOSER[opened] == token:
+            opened = None
+        else:
+            return f"{token} closes maths that wasn't opened"
+    return f"maths opened with {opened} is never closed" if opened else None
+
+
+def _repaired_maths(text: str) -> str:
+    text = repair_maths(text)
+    problem = maths_problem(text)
+    if problem:
+        raise ValueError(problem)
+    return text
+
+
 # --- Internal: quiz content with answers (LLM output, fallback bank, quiz_sessions) ---
 
 class QuizQuestion(BaseModel):
@@ -61,18 +110,18 @@ class QuizQuestion(BaseModel):
         repaired = _drop_placeholder_blocks(_unescape_code(text))
         if not repaired:
             raise ValueError("must contain text, not only an empty code block")
-        return repaired
+        return _repaired_maths(repaired)
 
     @field_validator("options")
     @classmethod
     def options_are_distinct(cls, options: list[str]) -> list[str]:
-        if len({_normalise(o) for o in options}) != len(options):
+        if len({normalise(o) for o in options}) != len(options):
             raise ValueError("options must be distinct")
         # ["D", "A", "B", "C"] points at choices written into the question, which clash with the
         # letters the quiz page shows next to each option.
         if all(_LETTER_ONLY.match(o) for o in options):
             raise ValueError("options must be answers, not letters referring to the question")
-        return [_unescape_code(o) for o in options]
+        return [_repaired_maths(_unescape_code(o)) for o in options]
 
 
 class QuizContent(BaseModel):
@@ -80,7 +129,7 @@ class QuizContent(BaseModel):
 
     @model_validator(mode="after")
     def questions_are_distinct(self) -> "QuizContent":
-        if len({_normalise(q.question) for q in self.questions}) != len(self.questions):
+        if len({normalise(q.question) for q in self.questions}) != len(self.questions):
             raise ValueError("questions must be distinct")
         return self
 
@@ -113,9 +162,13 @@ class QuizInfo(BaseModel):
     answered_questions: int = Field(description="Questions already answered or timed out")
     seconds_per_question: int
     expires_in_seconds: int
-    source: Literal["ai", "fallback"] | None = Field(
+    source: Literal["ai", "fallback", "mixed"] | None = Field(
         default=None,
-        description="'ai' (LLM) or 'fallback' (curated bank); only reported when the quiz is generated",
+        description=(
+            "'ai' (LLM, every question passed the answer check), 'fallback' (curated bank) or 'mixed' (AI "
+            "questions, those that failed the answer check replaced from the bank); only reported when the "
+            "quiz is generated"
+        ),
     )
     proctoring: ProctoringInfo
 

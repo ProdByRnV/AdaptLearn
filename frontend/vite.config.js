@@ -22,9 +22,11 @@ export default defineConfig({
         // long-cached chunk. Other libraries share a second one. The knowledge graph's canvas
         // library and its d3 dependencies get a third, only loaded by the graph page; it ranks
         // below React so that React (a dependency of the graph library) isn't pulled into it.
+        // KaTeX (maths in quiz text) gets a fourth, only loaded when a question contains maths.
         codeSplitting: {
           groups: [
             { name: 'react', test: /node_modules[\\/](react|react-dom|react-router|scheduler)[\\/]/, priority: 3 },
+            { name: 'katex', test: /node_modules[\\/]katex[\\/]/, priority: 2 },
             {
               name: 'graph',
               test: /node_modules[\\/](react-force-graph-2d|force-graph|react-kapsule|kapsule|d3-[^\\/]+|@tweenjs|accessor-fn|bezier-js|canvas-color-tracker|float-tooltip|index-array-by|internmap|jerrypick|lodash-es|preact|tinycolor2)[\\/]/,
