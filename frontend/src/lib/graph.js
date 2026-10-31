@@ -187,6 +187,12 @@ export const BAND_ROW = 50
 export const BAND_PADDING = 140
 /** The gap left between two domains' boxes, in graph units. */
 const BAND_GAP = 6
+/**
+ * The room for a domain's name above its band's top row, in graph units: half the padding and half
+ * a row, less a topic's radius and a margin. Far zoomed out, the name shrinks to fit it.
+ */
+export const BAND_TITLE_ROOM = BAND_PADDING / 2 + BAND_ROW / 2 - NODE_RADIUS - 16
+const BAND_TITLE_INSET = 8
 
 /**
  * Prerequisite depth, as force-graph's left-to-right layout uses for columns: 0 for a topic with no
@@ -307,11 +313,14 @@ export function groupBoxes(nodes, groups, scale = 1, bands = null) {
 
 /**
  * Draw each domain's area under the topics, named in its corner. Zoomed out, where topic labels
- * are hidden, the names are drawn large so the map reads as its domains.
+ * are hidden, the names are drawn large so the map reads as its domains; with bands, never larger
+ * than the room above the band's top row, so a name doesn't cover topics.
  */
 export function paintGroups(ctx, scale, nodes, groups, palette, bands = null) {
   const zoomedOut = scale < LABEL_MIN_SCALE
-  const fontSize = (zoomedOut ? 20 : 12) / scale
+  const wanted = (zoomedOut ? 20 : 12) / scale
+  const inset = bands ? Math.min(6 / scale, BAND_TITLE_INSET) : 6 / scale
+  const fontSize = bands ? Math.min(wanted, BAND_TITLE_ROOM - inset) : wanted
   for (const box of groupBoxes(nodes, groups, scale, bands)) {
     ctx.save()
     ctx.beginPath()
@@ -328,7 +337,7 @@ export function paintGroups(ctx, scale, nodes, groups, palette, bands = null) {
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     ctx.fillStyle = palette.primaryDark
-    ctx.fillText(box.name, box.x + 8 / scale, box.y + 6 / scale)
+    ctx.fillText(box.name, box.x + 8 / scale, box.y + inset)
     ctx.restore()
   }
 }

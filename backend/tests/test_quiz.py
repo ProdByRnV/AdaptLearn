@@ -136,6 +136,35 @@ def test_options_that_only_name_letters_are_rejected(options):
         parse_quiz(quiz_json(q, make_question(1), make_question(2)))
 
 
+@pytest.mark.parametrize(
+    ("options", "correct", "kept", "key"),
+    [
+        # Seen in Phase 27 samples: a blank fifth option failed a sound question.
+        (["W", "X", "Y", "Z", ""], 0, ["W", "X", "Y", "Z"], 0),
+        (["", "W", "X", "  ", "Y", "Z"], 4, ["W", "X", "Y", "Z"], 2),  # the key still names "Y"
+    ],
+)
+def test_blank_extra_options_are_dropped_and_the_key_follows_its_answer(options, correct, kept, key):
+    q = make_question(0, options=options, correct=correct)
+    parsed = parse_quiz(quiz_json(q, make_question(1), make_question(2)))[0]
+    assert (parsed.options, parsed.correct) == (kept, key)
+    assert parsed.options[parsed.correct] == options[correct]
+
+
+@pytest.mark.parametrize(
+    ("options", "correct"),
+    [
+        (["W", "X", "Y", "Z", ""], 4),  # the key is the blank option
+        (["W", "", "X", "Y", "Z"], 1),  # ...in the middle: it must not pass to the next answer
+        (["W", "X", "", "Y"], 0),  # only three real answers
+    ],
+)
+def test_blank_options_still_fail_when_the_key_or_count_is_wrong(options, correct):
+    q = make_question(0, options=options, correct=correct)
+    with pytest.raises(InvalidQuizOutput):
+        parse_quiz(quiz_json(q, make_question(1), make_question(2)))
+
+
 def test_options_differing_only_in_letter_case_are_distinct():
     # String results: "DataScience".lower() and .upper() are different answers (seen in Phase 26 samples).
     q = make_question(0, options=["DataScience", "datascience", "DATASCIENCE", "Data Science"])
@@ -190,6 +219,35 @@ def test_a_line_break_escaped_outside_code_is_rejected(question, options):
     q = make_question(0, question=question, **({"options": options} if options else {}))
     with pytest.raises(InvalidQuizOutput, match="line break is written as"):
         parse_quiz(quiz_json(q, make_question(1), make_question(2)))
+
+
+@pytest.mark.parametrize(
+    "question, options",
+    [
+        # Seen in Phase 27 samples: maths whose delimiters were lost shows its commands raw.
+        ("How many weights does the layer have?", ["(5 \\times 5 \\times 64 = 1600)", "b", "c", "d"]),
+        ("Which is the third element?", ["\\sin\\left(\\frac{3}{10}\\right)", "b", "c", "d"]),
+        ("Which interval is right? (44.8 \\text{ to } 59.2)", None),
+    ],
+)
+def test_latex_outside_maths_is_rejected(question, options):
+    q = make_question(0, question=question, **({"options": options} if options else {}))
+    with pytest.raises(InvalidQuizOutput, match="LaTeX is written outside"):
+        parse_quiz(quiz_json(q, make_question(1), make_question(2)))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "What is \\( 5 \\times 5 \\)?",  # inside maths
+        "What does `re.sub(r'\\sin', '', s)` do?",  # inside code
+        "Run .\\env\\Scripts\\activate on Windows",  # a path, not LaTeX
+        "Does \\textbf stay?",  # not a command in the list: the next letters continue the word
+    ],
+)
+def test_backslash_words_that_are_not_stray_latex_are_kept(text):
+    parsed = parse_quiz(quiz_json(make_question(0, question=text), make_question(1), make_question(2)))[0]
+    assert parsed.question == text
 
 
 @pytest.mark.parametrize(
@@ -474,7 +532,8 @@ def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm
     rows = db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id)).all()
     assert {r.topic_id for r in rows} == {
         ROOT, "html_basics", "javascript_fundamentals", "sql_basics", "command_line_basics", "how_the_internet_works",
-        "how_computers_work", "programming_concepts", "python_basics",
+        "how_computers_work", "programming_concepts", "python_basics", "ds_descriptive_stats", "ml_what_is_ml",
+        "ml_linear_algebra",
     }
     assert progress_row(db, user_id, ROOT).status == "in_progress"
     nodes = {n["id"]: n for n in client.get("/api/topics/graph", headers=headers).json()["nodes"]}

@@ -4,6 +4,7 @@ import { DOMAINS, topicGraph, topicMap } from '@/test/fixtures'
 
 import {
   BAND_PADDING,
+  BAND_TITLE_ROOM,
   BAND_ROW,
   bandExtents,
   bandRows,
@@ -388,5 +389,32 @@ describe('the whole map', () => {
     // Font sizes are in graph units: the size on screen is size * scale.
     expect(size(texts[0][1])).toBe(12)
     expect(size(texts[2][1]) * (LABEL_MIN_SCALE / 2)).toBeCloseTo(20)
+  })
+
+  it('with bands, keeps each domain name above its first row of topics however far out it is zoomed', () => {
+    // Seen with five domains: zoomed far out, a 20 px name covered the top row of topics.
+    const bands = bandExtents(nodes, DOMAINS)
+    const rows = bandRows(nodes, DOMAINS)
+    const placed = nodes.map((n, i) => ({ ...n, x: i * 10, y: rows.get(n.id) }))
+    const palette = { primary: '#0f766e', primaryDark: '#134e4a', link: '#cbd5e1' }
+    for (const scale of [1, LABEL_MIN_SCALE / 2, 0.05]) {
+      const texts = []
+      const ctx = {
+        save() {}, restore() {}, beginPath() {}, rect() {}, fill() {}, stroke() {},
+        fillText(text, x, y) {
+          texts.push({ text, y, size: Number.parseFloat(this.font.split(' ')[1]) })
+        },
+      }
+      paintGroups(ctx, scale, placed, DOMAINS, palette, bands)
+      expect(texts).toHaveLength(2)
+      for (const { text, y, size } of texts) {
+        const id = DOMAINS.find((d) => d.name === text).id
+        const firstRow = Math.min(...placed.filter((n) => n.home_domain === id).map((n) => n.y))
+        expect(y + size).toBeLessThan(firstRow - NODE_RADIUS)
+      }
+      // Where there is room, the names keep their usual size on screen.
+      if (scale === LABEL_MIN_SCALE / 2) expect(texts[0].size * scale).toBeCloseTo(20)
+      expect(texts[0].size).toBeLessThanOrEqual(BAND_TITLE_ROOM)
+    }
   })
 })

@@ -20,6 +20,7 @@ ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
 # Starting topics in other domains: unlocked for everyone, since a topic's status isn't tied to a domain.
 OTHER_ROOTS = {
     "command_line_basics", "how_the_internet_works", "how_computers_work", "programming_concepts", "python_basics",
+    "ds_descriptive_stats", "ml_what_is_ml", "ml_linear_algebra",
 }
 NAMES = {t.id: t.name for t in TOPICS}
 

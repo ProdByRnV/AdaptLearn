@@ -1,8 +1,10 @@
 """Joining domains, per-domain onboarding, the domain catalogue and the home page (Phase 23).
 
 Uses the real curriculum: Foundations (10 topics, five of them starting topics, including
-git_basics), Web Development (30 topics, sharing git_basics) and Python (20 topics, one starting
-topic). Cross-domain prerequisites are covered with the test domains in test_domains.py.
+git_basics), Web Development (30 topics, sharing git_basics), Python (20 topics, one starting
+topic), Data Science (17 topics, one of them shared from AI & ML; one starting topic) and AI & ML
+(21 topics, two starting topics). Cross-domain prerequisites are covered with the test domains in
+test_domains.py.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -19,6 +21,8 @@ pytestmark = pytest.mark.usefixtures("curriculum")
 WEB = "web-development"
 FOUNDATIONS = "foundations"
 PYTHON = "python"
+DATA_SCIENCE = "data-science"
+AI_ML = "ai-ml"
 # Every Foundations topic: onboarding with all of them completes the domain.
 ALL_FOUNDATIONS = [
     "how_computers_work", "binary_data_representation", "data_formats", "programming_concepts",
@@ -96,18 +100,18 @@ def test_catalogue_lists_every_domain_in_curriculum_order_with_its_size(client, 
     response = client.get("/api/domains", headers=headers)
 
     domains = response.json()["domains"]
-    assert [d["id"] for d in domains] == [FOUNDATIONS, WEB, PYTHON]
-    foundations, web, python = domains
+    assert [d["id"] for d in domains] == [FOUNDATIONS, WEB, PYTHON, DATA_SCIENCE, AI_ML]
     assert [(d["name"], d["total_topics"]) for d in domains] == [
-        ("Foundations", 10), ("Web Development", 30), ("Python", 20)
+        ("Foundations", 10), ("Web Development", 30), ("Python", 20), ("Data Science", 17), ("AI & ML", 21)
     ]
     assert all(d["description"] for d in domains)
     for d in domains:
         assert (d["joined"], d["joined_at"], d["onboarded"], d["suggested"]) == (False, None, False, False)
         assert (d["completed_topics"], d["in_progress_topics"], d["progress_percent"]) == (0, 0, 0.0)
         assert d["known_topics"] == [] and d["ready_topics"] == [] and d["curriculum_complete"] is False
-    # Starting topics: five in Foundations, four in Web Development (Git Basics is shared), one in Python.
-    assert (foundations["available_topics"], web["available_topics"], python["available_topics"]) == (5, 4, 1)
+    # Starting topics: five in Foundations, four in Web Development (Git Basics is shared), one in Python,
+    # one in Data Science (Descriptive Statistics) and two in AI & ML.
+    assert [d["available_topics"] for d in domains] == [5, 4, 1, 1, 2]
     assert progress_rows(db, user_id) == {}  # reading the catalogue writes nothing for a new learner
 
 
@@ -191,7 +195,7 @@ def test_enrolment_in_a_domain_no_longer_offered_is_ignored(client, make_user, d
     db.add(DomainEnrolment(user_id=user_id, domain_id="retired-domain"))
     db.commit()
 
-    assert set(catalogue(client, headers)) == {FOUNDATIONS, WEB, PYTHON}
+    assert set(catalogue(client, headers)) == {FOUNDATIONS, WEB, PYTHON, DATA_SCIENCE, AI_ML}
     assert home(client, headers)["domains"] == []
 
 

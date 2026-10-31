@@ -1,6 +1,8 @@
 """Every curated fallback question, keyed by topic id. The questions themselves are in seed/questions/."""
 
 from seed.questions import Bank
+from seed.questions.ai_ml import QUESTIONS as AI_ML
+from seed.questions.data_science import QUESTIONS as DATA_SCIENCE
 from seed.questions.foundations import QUESTIONS as FOUNDATIONS
 from seed.questions.python import QUESTIONS as PYTHON
 from seed.questions.web_development import QUESTIONS as WEB_DEVELOPMENT
@@ -16,4 +18,4 @@ def merge(*banks: Bank) -> Bank:
     return merged
 
 
-FALLBACK_QUESTIONS: Bank = merge(FOUNDATIONS, WEB_DEVELOPMENT, PYTHON)
+FALLBACK_QUESTIONS: Bank = merge(FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML)

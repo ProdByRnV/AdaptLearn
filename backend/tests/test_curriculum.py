@@ -14,6 +14,8 @@ from seed.curriculum import (
     Topic,
     validate_curriculum,
 )
+from seed.domains.ai_ml import AI_ML
+from seed.domains.data_science import DATA_SCIENCE
 from seed.domains.foundations import FOUNDATIONS
 from seed.domains.python import PYTHON
 from seed.domains.web_development import WEB_DEVELOPMENT
@@ -42,7 +44,7 @@ def test_real_curriculum_is_valid():
 
 
 def test_domains_and_default():
-    assert [d.id for d in DOMAINS] == ["foundations", "web-development", "python"]
+    assert [d.id for d in DOMAINS] == ["foundations", "web-development", "python", "data-science", "ai-ml"]
     assert DEFAULT_DOMAIN == "web-development"
     assert DOMAIN_BY_ID["web-development"].name == "Web Development"
 
@@ -161,9 +163,84 @@ def test_every_python_topic_can_be_reached_from_python_basics_and_foundations():
         remaining -= ready
 
 
+def test_python_has_no_prerequisites_from_later_domains():
+    python = set(PYTHON.topic_ids)
+    later = set(DATA_SCIENCE.topic_ids) | set(AI_ML.topic_ids)
+    assert not {s for s, t in PREREQUISITES if t in python} & later
+
+
+# --- Data Science and AI & ML ---------------------------------------------------------------
+
+EXPECTED_DATA_SCIENCE = {
+    "ds_jupyter": 1, "ds_numpy": 2, "ds_pandas_basics": 2, "ds_data_cleaning": 2, "ds_pandas_grouping": 3,
+    "ds_visualisation": 2, "ds_time_series": 3, "ds_descriptive_stats": 1, "ds_probability": 2,
+    "ds_distributions": 3, "ds_sampling": 3, "ds_hypothesis_testing": 3, "ds_ab_testing": 4, "ds_correlation": 2,
+    "ds_eda": 3, "ds_communicating": 3,
+}
+EXPECTED_AI_ML = {
+    "ml_what_is_ml": 1, "ml_linear_algebra": 2, "ml_calculus": 3, "ml_train_test": 2, "ml_linear_regression": 2,
+    "ml_logistic_regression": 3, "ml_evaluation_metrics": 3, "ml_overfitting": 3, "ml_gradient_descent": 3,
+    "ml_scikit_learn": 3, "ml_feature_engineering": 3, "ml_decision_trees": 3, "ml_clustering": 3, "ml_pca": 4,
+    "ml_neural_networks": 3, "ml_training_nn": 4, "ml_cnn": 4, "ml_embeddings": 4, "ml_transformers": 4,
+    "ml_llm_apis": 3, "ml_responsible_ai": 2,
+}
+
+
+def _edges_into(domain: Domain) -> set[tuple[str, str]]:
+    own = {t.id for t in domain.topics}
+    return {(s, t) for s, t in PREREQUISITES if t in own and s not in own}
+
+
+def test_data_science_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in DATA_SCIENCE.topics} == EXPECTED_DATA_SCIENCE
+    assert len(DATA_SCIENCE.prerequisites) == 20
+    # Linear Regression lives in AI & ML and is shared, so progress on it counts in both.
+    assert DATA_SCIENCE.shared == ("ml_linear_regression",)
+    assert "ml_linear_regression" in AI_ML.topic_ids
+
+
+def test_ai_ml_topics_and_difficulties():
+    assert {i: TOPIC_BY_ID[i].difficulty for i in AI_ML.topic_ids} == EXPECTED_AI_ML
+    assert len(AI_ML.prerequisites) == 31
+    assert AI_ML.shared == ()
+
+
+def test_starting_topics_of_data_science_and_ai_ml():
+    assert [t.id for t in DATA_SCIENCE.topics if not _needs(t.id)] == ["ds_descriptive_stats"]
+    assert [i for i in AI_ML.topic_ids if not _needs(i)] == ["ml_what_is_ml", "ml_linear_algebra"]
+
+
+def test_data_science_builds_on_python_and_foundations():
+    assert _edges_into(DATA_SCIENCE) == {
+        ("python_basics", "ds_jupyter"),
+        ("python_lists_tuples", "ds_numpy"),
+        ("python_dicts_sets", "ds_pandas_basics"),
+        ("data_formats", "ds_pandas_basics"),
+    }
+
+
+def test_ai_ml_builds_on_data_science_and_python():
+    assert _edges_into(AI_ML) == {
+        ("ds_correlation", "ml_linear_regression"),
+        ("ds_pandas_basics", "ml_scikit_learn"),
+        ("ds_data_cleaning", "ml_feature_engineering"),
+        ("python_http_requests", "ml_llm_apis"),
+    }
+
+
+def test_every_data_science_and_ai_ml_topic_can_be_reached():
+    done = {t.id for d in (FOUNDATIONS, PYTHON) for t in d.topics}
+    remaining = set(DATA_SCIENCE.topic_ids) | set(AI_ML.topic_ids)
+    while remaining:
+        ready = {i for i in remaining if _needs(i) <= done}
+        assert ready, f"unreachable: {sorted(remaining)}"
+        done |= ready
+        remaining -= ready
+
+
 def test_pool_holds_every_topic_once():
     ids = [t.id for t in TOPICS]
-    assert len(ids) == len(set(ids)) == 59
+    assert len(ids) == len(set(ids)) == 96
     assert set(ids) == {i for d in DOMAINS for i in d.topic_ids}
 
 

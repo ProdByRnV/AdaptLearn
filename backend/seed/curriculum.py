@@ -8,6 +8,8 @@ match (see seed/seed_graph.py).
 import re
 from collections import defaultdict
 
+from seed.domains.ai_ml import AI_ML
+from seed.domains.data_science import DATA_SCIENCE
 from seed.domains.foundations import FOUNDATIONS
 from seed.domains.python import PYTHON
 from seed.domains.web_development import WEB_DEVELOPMENT
@@ -18,7 +20,7 @@ __all__ = [
     "CurriculumError", "Domain", "Resource", "Topic", "validate_curriculum",
 ]
 
-DOMAINS: tuple[Domain, ...] = (FOUNDATIONS, WEB_DEVELOPMENT, PYTHON)
+DOMAINS: tuple[Domain, ...] = (FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML)
 DOMAIN_BY_ID: dict[str, Domain] = {d.id: d for d in DOMAINS}
 
 # The shared pool: every topic exactly once, and every prerequisite edge.

@@ -18,6 +18,7 @@ ALL_IDS = set(WEB_DEVELOPMENT.topic_ids)  # the default domain
 # Starting topics of other domains get rows too: a topic's status isn't tied to a domain.
 OTHER_ROOTS = {
     "command_line_basics", "how_the_internet_works", "how_computers_work", "programming_concepts", "python_basics",
+    "ds_descriptive_stats", "ml_what_is_ml", "ml_linear_algebra",
 }
 TOPIC_BY_ID = {t.id: t for t in TOPICS}
 ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
@@ -243,7 +244,7 @@ def test_progress_all_matches_spec_shape_and_values(client, make_user, db, quiz_
 
     topics = client.get("/api/progress/all", headers=headers).json()["topics"]
 
-    assert len(topics) == 35
+    assert len(topics) == 38
     assert [t["topic_id"] for t in topics] == sorted(ALL_IDS | OTHER_ROOTS)
     for item in topics:
         assert set(item) == {"topic_id", "status", "p_know", "attempts", "correct", "needs_attention"}

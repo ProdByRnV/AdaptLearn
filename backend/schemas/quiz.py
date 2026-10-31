@@ -93,11 +93,25 @@ def _repaired_maths(text: str) -> str:
     return text
 
 
-def _no_escaped_line_breaks(text: str) -> str:
-    """A literal backslash-n left outside code and maths (after _unescape_code) is a line break the
-    model escaped in only part of the text, e.g. an option "True\\n7". It would show as \\n."""
-    if "\\n" in _MATH_SPAN.sub("", _CODE.sub("", text)):
+# LaTeX commands that only mean something between \( \) or \[ \]; elsewhere the page shows them raw.
+# A list rather than any backslash-word, so that a Windows path such as .\env\Scripts stays allowed.
+_LATEX_COMMAND = re.compile(
+    r"\\(?:frac|dfrac|sqrt|times|cdot|div|pm|sum|prod|int|lim|log|ln|exp|sin|cos|tan|left|right|text|"
+    r"mathrm|mathbf|mathbb|hat|bar|vec|alpha|beta|gamma|delta|epsilon|theta|lambda|sigma|nabla|"
+    r"partial|infty|leq|geq|neq|approx)(?![A-Za-z])"
+)
+
+
+def _plain_outside_code_and_maths(text: str) -> str:
+    """Text outside code and maths must read as plain text. A literal backslash-n there (after
+    _unescape_code) is a line break the model escaped in only part of the text, e.g. an option
+    "True\\n7"; a LaTeX command there lost its maths delimiters, e.g. "(5 \\times 5)". Either would
+    show its backslash on the page."""
+    plain = _MATH_SPAN.sub("", _CODE.sub("", text))
+    if "\\n" in plain:
         raise ValueError("a line break is written as \\n outside code")
+    if _LATEX_COMMAND.search(plain):
+        raise ValueError("LaTeX is written outside \\( \\) or \\[ \\]")
     return text
 
 
@@ -112,6 +126,23 @@ class QuizQuestion(BaseModel):
     correct: StrictInt = Field(ge=0, le=OPTIONS_PER_QUESTION - 1)
     explanation: NonEmpty
 
+    @model_validator(mode="before")
+    @classmethod
+    def drop_blank_options(cls, data: Any) -> Any:
+        """Models sometimes add an empty extra option (seen as a fifth ""), which would otherwise fail
+        the whole quiz. Blank options are dropped and the key moved so it names the same answer; the
+        option count is then checked as usual. A key pointing at a blank option is left to fail."""
+        if not isinstance(data, dict):
+            return data
+        options, correct = data.get("options"), data.get("correct")
+        if not isinstance(options, list) or type(correct) is not int:
+            return data
+        blank = [i for i, o in enumerate(options) if isinstance(o, str) and not o.strip()]
+        if not blank or correct in blank:
+            return data
+        kept = [o for i, o in enumerate(options) if i not in blank]
+        return {**data, "options": kept, "correct": correct - sum(i < correct for i in blank)}
+
     @field_validator("question", "explanation")
     @classmethod
     def repair_code_blocks(cls, text: str) -> str:
@@ -122,8 +153,8 @@ class QuizQuestion(BaseModel):
 
     @field_validator("question")
     @classmethod
-    def question_has_real_line_breaks(cls, text: str) -> str:
-        return _no_escaped_line_breaks(text)
+    def question_reads_as_plain_text(cls, text: str) -> str:
+        return _plain_outside_code_and_maths(text)
 
     @field_validator("options")
     @classmethod
@@ -136,7 +167,7 @@ class QuizQuestion(BaseModel):
         # letters the quiz page shows next to each option.
         if all(_LETTER_ONLY.match(o) for o in options):
             raise ValueError("options must be answers, not letters referring to the question")
-        return [_no_escaped_line_breaks(_repaired_maths(_unescape_code(o))) for o in options]
+        return [_plain_outside_code_and_maths(_repaired_maths(_unescape_code(o))) for o in options]
 
 
 class QuizContent(BaseModel):
