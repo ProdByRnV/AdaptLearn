@@ -106,11 +106,13 @@ def _plain_outside_code_and_maths(text: str) -> str:
     """Text outside code and maths must read as plain text. A literal backslash-n there (after
     _unescape_code) is a line break the model escaped in only part of the text, e.g. an option
     "True\\n7"; a LaTeX command there lost its maths delimiters, e.g. "(5 \\times 5)". Either would
-    show its backslash on the page."""
+    show its backslash on the page. Without delimiters repair_maths doesn't run, so a command whose
+    backslash JSON turned into a tab or carriage return ("(1.5<tab>imes10^{12})") is looked for too."""
     plain = _MATH_SPAN.sub("", _CODE.sub("", text))
     if "\\n" in plain:
         raise ValueError("a line break is written as \\n outside code")
-    if _LATEX_COMMAND.search(plain):
+    restored = re.sub(r"[\t\r](?=[A-Za-z])", lambda m: _LOST_BACKSLASH[m.group(0)], plain)
+    if _LATEX_COMMAND.search(restored):
         raise ValueError("LaTeX is written outside \\( \\) or \\[ \\]")
     return text
 

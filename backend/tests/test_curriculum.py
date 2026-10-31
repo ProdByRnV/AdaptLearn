@@ -15,6 +15,8 @@ from seed.curriculum import (
     validate_curriculum,
 )
 from seed.domains.ai_ml import AI_ML
+from seed.domains.app_development import APP_DEVELOPMENT
+from seed.domains.blockchain import BLOCKCHAIN
 from seed.domains.cloud_devops import CLOUD_DEVOPS
 from seed.domains.cs_core import CS_CORE
 from seed.domains.cybersecurity import CYBERSECURITY
@@ -50,7 +52,7 @@ def test_real_curriculum_is_valid():
 def test_domains_and_default():
     assert [d.id for d in DOMAINS] == [
         "foundations", "web-development", "python", "data-science", "ai-ml", "databases", "cs-core",
-        "cybersecurity", "cloud-devops",
+        "cybersecurity", "cloud-devops", "blockchain", "app-development",
     ]
     assert DEFAULT_DOMAIN == "web-development"
     assert DOMAIN_BY_ID["web-development"].name == "Web Development"
@@ -358,6 +360,70 @@ def test_every_cybersecurity_topic_is_about_defence():
         assert not any(word in text for word in ("exploit code", "payload", "bypass", "evade", "crack ")), topic.id
 
 
+# --- Blockchain & Web3 and App Development ----------------------------------------------------
+
+EXPECTED_BLOCKCHAIN = {
+    "bc_what_is_blockchain": 1, "bc_hash_functions": 2, "bc_keys_signatures": 2, "bc_p2p_networks": 2,
+    "bc_use_cases": 2, "bc_wallets": 3, "bc_consensus": 3, "bc_bitcoin": 3, "bc_ethereum": 3,
+    "bc_smart_contracts": 3, "bc_solidity": 3, "bc_dev_tools": 4, "bc_tokens": 4, "bc_contract_security": 4,
+    "bc_dapps": 4, "bc_oracles_storage": 4, "bc_defi": 4, "bc_scaling": 4,
+}
+EXPECTED_APP_DEVELOPMENT = {
+    "app_mobile_landscape": 1, "app_mobile_ux": 2, "app_kotlin_basics": 2, "app_swift_basics": 2,
+    "app_android_compose": 3, "app_swiftui": 3, "app_react_native": 3, "app_flutter": 3, "app_pwa": 3,
+    "app_navigation": 3, "app_lifecycle": 3, "app_networking": 3, "app_local_storage": 3,
+    "app_permissions_privacy": 3, "app_architecture": 4, "app_notifications": 4, "app_testing": 4,
+    "app_performance": 4, "app_security": 4, "app_publishing": 4,
+}
+
+
+def test_blockchain_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in BLOCKCHAIN.topics} == EXPECTED_BLOCKCHAIN
+    assert len(BLOCKCHAIN.prerequisites) == 27
+    assert BLOCKCHAIN.shared == ()
+
+
+def test_app_development_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in APP_DEVELOPMENT.topics} == EXPECTED_APP_DEVELOPMENT
+    assert len(APP_DEVELOPMENT.prerequisites) == 36
+    assert APP_DEVELOPMENT.shared == ()
+
+
+def test_starting_topics_of_blockchain_and_app_development():
+    assert [i for i in BLOCKCHAIN.topic_ids if not _needs(i)] == ["bc_what_is_blockchain"]
+    assert [i for i in APP_DEVELOPMENT.topic_ids if not _needs(i)] == ["app_mobile_landscape"]
+
+
+def test_blockchain_and_app_development_build_on_earlier_domains():
+    assert _edges_into(BLOCKCHAIN) == {
+        ("binary_data_representation", "bc_hash_functions"),
+        ("how_the_internet_works", "bc_p2p_networks"),
+        ("security_basics", "bc_wallets"),
+        ("programming_concepts", "bc_smart_contracts"),
+        ("async_javascript", "bc_dapps"),
+    }
+    assert _edges_into(APP_DEVELOPMENT) == {
+        ("programming_concepts", "app_kotlin_basics"),
+        ("programming_concepts", "app_swift_basics"),
+        ("programming_concepts", "app_flutter"),
+        ("react_fundamentals", "app_react_native"),
+        ("responsive_design", "app_pwa"),
+        ("async_javascript", "app_pwa"),
+        ("operating_system_basics", "app_lifecycle"),
+        ("how_the_internet_works", "app_networking"),
+        ("data_formats", "app_networking"),
+        ("sql_basics", "app_local_storage"),
+        ("security_basics", "app_permissions_privacy"),
+    }
+
+
+def test_every_blockchain_topic_stays_technical():
+    # Blockchain is taught as technology: no topic promises investing, trading or price tips.
+    for topic in BLOCKCHAIN.topics:
+        text = f"{topic.name} {topic.description}".lower()
+        assert not any(word in text for word in ("invest", "trading", "profit", "price prediction", "get rich")), topic.id
+
+
 def test_every_domain_has_a_starting_topic():
     # A learner who joins a domain can always start something in it, without another domain first.
     for domain in DOMAINS:
@@ -376,7 +442,7 @@ def test_every_topic_can_be_reached():
 
 def test_pool_holds_every_topic_once():
     ids = [t.id for t in TOPICS]
-    assert len(ids) == len(set(ids)) == 169
+    assert len(ids) == len(set(ids)) == 207
     assert set(ids) == {i for d in DOMAINS for i in d.topic_ids}
 
 

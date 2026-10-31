@@ -5,7 +5,8 @@ git_basics), Web Development (30 topics, sharing git_basics), Python (20 topics,
 topic), Data Science (17 topics, one of them shared from AI & ML; one starting topic), AI & ML
 (21 topics, two starting topics), Databases (18 topics, sharing SQL Basics; two starting topics),
 Computer Science Core (19 topics, one starting topic), Cybersecurity (18 topics, sharing Security
-Basics; one starting topic) and Cloud & DevOps (20 topics, one starting topic). Cross-domain
+Basics; one starting topic), Cloud & DevOps (20 topics, one starting topic), Blockchain & Web3 (18
+topics, one starting topic) and App Development (20 topics, one starting topic). Cross-domain
 prerequisites are covered with the test domains in test_domains.py.
 """
 
@@ -106,10 +107,12 @@ def test_catalogue_lists_every_domain_in_curriculum_order_with_its_size(client, 
     domains = response.json()["domains"]
     assert [d["id"] for d in domains] == [
         FOUNDATIONS, WEB, PYTHON, DATA_SCIENCE, AI_ML, DATABASES, CS_CORE, "cybersecurity", "cloud-devops",
+        "blockchain", "app-development",
     ]
     assert [(d["name"], d["total_topics"]) for d in domains] == [
         ("Foundations", 10), ("Web Development", 30), ("Python", 20), ("Data Science", 17), ("AI & ML", 21),
         ("Databases", 18), ("Computer Science Core", 19), ("Cybersecurity", 18), ("Cloud & DevOps", 20),
+        ("Blockchain & Web3", 18), ("App Development", 20),
     ]
     assert all(d["description"] for d in domains)
     for d in domains:
@@ -119,8 +122,8 @@ def test_catalogue_lists_every_domain_in_curriculum_order_with_its_size(client, 
     # Starting topics: five in Foundations, four in Web Development (Git Basics is shared), one in Python,
     # one in Data Science (Descriptive Statistics), two in AI & ML, two in Databases (one of them the
     # shared SQL Basics), and one each in Computer Science Core, Cybersecurity (its shared Security Basics
-    # needs How the Internet Works first) and Cloud & DevOps.
-    assert [d["available_topics"] for d in domains] == [5, 4, 1, 1, 2, 2, 1, 1, 1]
+    # needs How the Internet Works first), Cloud & DevOps, Blockchain & Web3 and App Development.
+    assert [d["available_topics"] for d in domains] == [5, 4, 1, 1, 2, 2, 1, 1, 1, 1, 1]
     assert progress_rows(db, user_id) == {}  # reading the catalogue writes nothing for a new learner
 
 
@@ -206,6 +209,7 @@ def test_enrolment_in_a_domain_no_longer_offered_is_ignored(client, make_user, d
 
     assert set(catalogue(client, headers)) == {
         FOUNDATIONS, WEB, PYTHON, DATA_SCIENCE, AI_ML, DATABASES, CS_CORE, "cybersecurity", "cloud-devops",
+        "blockchain", "app-development",
     }
     assert home(client, headers)["domains"] == []
 

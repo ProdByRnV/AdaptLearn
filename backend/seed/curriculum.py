@@ -9,6 +9,8 @@ import re
 from collections import defaultdict
 
 from seed.domains.ai_ml import AI_ML
+from seed.domains.app_development import APP_DEVELOPMENT
+from seed.domains.blockchain import BLOCKCHAIN
 from seed.domains.cloud_devops import CLOUD_DEVOPS
 from seed.domains.cs_core import CS_CORE
 from seed.domains.cybersecurity import CYBERSECURITY
@@ -26,7 +28,7 @@ __all__ = [
 
 DOMAINS: tuple[Domain, ...] = (
     FOUNDATIONS, WEB_DEVELOPMENT, PYTHON, DATA_SCIENCE, AI_ML, DATABASES, CS_CORE, CYBERSECURITY,
-    CLOUD_DEVOPS,
+    CLOUD_DEVOPS, BLOCKCHAIN, APP_DEVELOPMENT,
 )
 DOMAIN_BY_ID: dict[str, Domain] = {d.id: d for d in DOMAINS}
 

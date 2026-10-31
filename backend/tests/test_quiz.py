@@ -228,6 +228,9 @@ def test_a_line_break_escaped_outside_code_is_rejected(question, options):
         ("How many weights does the layer have?", ["(5 \\times 5 \\times 64 = 1600)", "b", "c", "d"]),
         ("Which is the third element?", ["\\sin\\left(\\frac{3}{10}\\right)", "b", "c", "d"]),
         ("Which interval is right? (44.8 \\text{ to } 59.2)", None),
+        # Seen in Phase 30 samples: JSON read the \t of \times as a tab, leaving "<tab>imes".
+        ("How many hashes are needed?", ["(1.5\times10^{12}) hashes", "b", "c", "d"]),
+        ("Which angle is it? (\theta = 30 degrees)", None),
     ],
 )
 def test_latex_outside_maths_is_rejected(question, options):
@@ -243,6 +246,7 @@ def test_latex_outside_maths_is_rejected(question, options):
         "What does `re.sub(r'\\sin', '', s)` do?",  # inside code
         "Run .\\env\\Scripts\\activate on Windows",  # a path, not LaTeX
         "Does \\textbf stay?",  # not a command in the list: the next letters continue the word
+        "Which column follows Name\tAge?",  # a tab before an ordinary word is not a lost backslash
     ],
 )
 def test_backslash_words_that_are_not_stray_latex_are_kept(text):
@@ -534,6 +538,7 @@ def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm
         ROOT, "html_basics", "javascript_fundamentals", "sql_basics", "command_line_basics", "how_the_internet_works",
         "how_computers_work", "programming_concepts", "python_basics", "ds_descriptive_stats", "ml_what_is_ml",
         "ml_linear_algebra", "db_data_models", "cs_complexity", "sec_principles", "devops_culture",
+        "bc_what_is_blockchain", "app_mobile_landscape",
     }
     assert progress_row(db, user_id, ROOT).status == "in_progress"
     nodes = {n["id"]: n for n in client.get("/api/topics/graph", headers=headers).json()["nodes"]}
