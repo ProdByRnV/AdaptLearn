@@ -18,7 +18,9 @@ POOL_IDS = {t.id for t in TOPICS}  # every domain
 ALL_IDS = set(WEB_DEVELOPMENT.topic_ids)  # the default domain, which onboarding uses
 ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
 # Starting topics in other domains: unlocked for everyone, since a topic's status isn't tied to a domain.
-OTHER_ROOTS = {"command_line_basics", "how_the_internet_works"}
+OTHER_ROOTS = {
+    "command_line_basics", "how_the_internet_works", "how_computers_work", "programming_concepts", "python_basics",
+}
 NAMES = {t.id: t.name for t in TOPICS}
 
 

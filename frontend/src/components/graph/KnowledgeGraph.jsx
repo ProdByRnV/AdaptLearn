@@ -1,11 +1,11 @@
 import { Maximize2, Minus, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { forceCollide, forceY } from 'd3-force-3d'
+import { forceCollide } from 'd3-force-3d'
 import ForceGraph2D from 'react-force-graph-2d'
 
 import { Button } from '@/components/ui/button'
 import {
-  BAND_STRENGTH,
+  bandExtents,
   bandRows,
   endId,
   NODE_RADIUS,
@@ -30,32 +30,36 @@ const FIT_PADDING = 64
  * prerequisite depth, with arrows from each prerequisite to the topic it unlocks. Drag to pan,
  * scroll or pinch to zoom, or use the buttons. Loaded on demand: the library is only needed here.
  *
- * With `groups` (the whole map's domains), each topic is pulled into its home domain's band and
- * every domain's area is drawn behind its topics.
+ * With `groups` (the whole map's domains), each topic is fixed to its row in its home domain's band
+ * and every domain's area is drawn behind its topics.
  */
 export default function KnowledgeGraph({ data, groups = null, selectedId, onSelect, width, height }) {
   const graphRef = useRef(null)
   const fitted = useRef(false)
   const palette = useMemo(() => readPalette(), [])
   const related = useMemo(() => relatedIds(selectedId, data.nodes), [selectedId, data])
+  const bands = useMemo(() => (groups ? bandExtents(data.nodes, groups) : null), [groups, data])
+  // On the whole map every topic is fixed to its row in its domain's band. Pulled there by a force
+  // instead, links between distant domains would drag topics out of their band.
+  const graphData = useMemo(() => {
+    if (!groups) return data
+    const rows = bandRows(data.nodes, groups)
+    return { ...data, nodes: data.nodes.map((node) => ({ ...node, fy: rows.get(node.id) ?? 0 })) }
+  }, [groups, data])
 
   useEffect(() => {
     const graph = graphRef.current
     if (!graph) return
     graph.d3Force('collide', forceCollide(COLLIDE_RADIUS))
     graph.d3Force('charge')?.strength(-90)
-    if (groups) {
-      const rows = bandRows(data.nodes, groups)
-      graph.d3Force('band', forceY((node) => rows.get(node.id) ?? 0).strength(BAND_STRENGTH))
-    }
     graph.d3ReheatSimulation()
-  }, [groups, data])
+  }, [graphData])
 
-  // Centre the selected topic once it has a position.
+  // Centre the selected topic once it has a position (the layout writes positions into graphData).
   useEffect(() => {
-    const node = data.nodes.find((n) => n.id === selectedId)
+    const node = graphData.nodes.find((n) => n.id === selectedId)
     if (node && Number.isFinite(node.x)) graphRef.current?.centerAt(node.x, node.y, 500)
-  }, [selectedId, data])
+  }, [selectedId, graphData])
 
   const linkActive = useCallback(
     (link) => Boolean(selectedId) && (endId(link.source) === selectedId || endId(link.target) === selectedId),
@@ -69,7 +73,7 @@ export default function KnowledgeGraph({ data, groups = null, selectedId, onSele
     const graph = graphRef.current
     if (!graph) return
     const view = startView(graph.getGraphBbox(), width, height, FIT_PADDING)
-    const selected = data.nodes.find((n) => n.id === selectedId)
+    const selected = graphData.nodes.find((n) => n.id === selectedId)
     if ((view.fit || groups) && !selected) return graph.zoomToFit(400, FIT_PADDING)
     graph.zoom(view.fit ? graph.zoom() : view.scale, 400)
     graph.centerAt(selected?.x ?? view.x, selected?.y ?? view.y, 400)
@@ -84,7 +88,7 @@ export default function KnowledgeGraph({ data, groups = null, selectedId, onSele
     <div className="relative">
       <ForceGraph2D
         ref={graphRef}
-        graphData={data}
+        graphData={graphData}
         width={width}
         height={height}
         backgroundColor="rgba(0,0,0,0)"
@@ -94,7 +98,7 @@ export default function KnowledgeGraph({ data, groups = null, selectedId, onSele
         nodeRelSize={NODE_RADIUS}
         nodeVal={(node) => (node.id === selectedId ? (SELECTED_RADIUS / NODE_RADIUS) ** 2 : 1)}
         nodeLabel={() => ''}
-        onRenderFramePre={groups ? (ctx, scale) => paintGroups(ctx, scale, data.nodes, groups, palette) : undefined}
+        onRenderFramePre={groups ? (ctx, scale) => paintGroups(ctx, scale, graphData.nodes, groups, palette, bands) : undefined}
         nodeCanvasObject={(node, ctx, scale) => paintNode(node, ctx, scale, { palette, selectedId, related })}
         nodePointerAreaPaint={(node, color, ctx, scale) => paintNodeArea(node, color, ctx, selectedId, scale)}
         linkColor={(link) => (linkActive(link) ? palette.primary : palette.link)}

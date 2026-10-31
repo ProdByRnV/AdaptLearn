@@ -79,8 +79,9 @@ export function retryTopicIds(attempts, attention = []) {
   return ids
 }
 
-/** "A", "A and B", "A, B and 2 more" */
+/** "A", "A and B", "A, B and C" (up to `max` names), "A, B and 2 more" */
 export function listNames(names, max = 2) {
-  if (names.length <= max) return names.length === 2 ? `${names[0]} and ${names[1]}` : names.join('')
+  if (names.length <= 1) return names.join('')
+  if (names.length <= max) return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
   return `${names.slice(0, max).join(', ')} and ${names.length - max} more`
 }

@@ -9,6 +9,7 @@ import re
 from collections import defaultdict
 
 from seed.domains.foundations import FOUNDATIONS
+from seed.domains.python import PYTHON
 from seed.domains.web_development import WEB_DEVELOPMENT
 from seed.model import RESOURCE_TYPES, Domain, Resource, Topic
 
@@ -17,7 +18,7 @@ __all__ = [
     "CurriculumError", "Domain", "Resource", "Topic", "validate_curriculum",
 ]
 
-DOMAINS: tuple[Domain, ...] = (FOUNDATIONS, WEB_DEVELOPMENT)
+DOMAINS: tuple[Domain, ...] = (FOUNDATIONS, WEB_DEVELOPMENT, PYTHON)
 DOMAIN_BY_ID: dict[str, Domain] = {d.id: d for d in DOMAINS}
 
 # The shared pool: every topic exactly once, and every prerequisite edge.

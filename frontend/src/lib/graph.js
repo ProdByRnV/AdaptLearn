@@ -179,11 +179,14 @@ export function paintNode(node, ctx, scale, { palette, selectedId, related }) {
 
 // --- The whole map: topics grouped by the domain that defines them ------------------------
 
-/** Height of one row of topics in a domain's band, and the room around each band, in graph units. */
+/**
+ * Height of one row of topics in a domain's band, and the room around each band, in graph units.
+ * Half the padding sits above the band's top row, where the domain's name is drawn.
+ */
 export const BAND_ROW = 50
-export const BAND_PADDING = 90
-/** How hard each topic is pulled to its row on the map; strong, so domains stay in their bands. */
-export const BAND_STRENGTH = 0.6
+export const BAND_PADDING = 140
+/** The gap left between two domains' boxes, in graph units. */
+const BAND_GAP = 6
 
 /**
  * Prerequisite depth, as force-graph's left-to-right layout uses for columns: 0 for a topic with no
@@ -206,12 +209,12 @@ export function topicDepths(nodes) {
 }
 
 /**
- * Where each domain's band sits on the whole map: the vertical centre for its topics, in
- * curriculum order from the top, each band as tall as its busiest column. Centred on 0.
+ * Where each domain's band sits on the whole map: its top, centre and bottom, in curriculum order
+ * from the top, each band as tall as its busiest column. The whole stack is centred on 0.
  */
-export function groupBands(nodes, groups) {
+export function bandExtents(nodes, groups) {
   const depths = topicDepths(nodes)
-  const centres = new Map()
+  const bands = new Map()
   let top = 0
   for (const group of groups) {
     const columns = new Map()
@@ -222,11 +225,21 @@ export function groupBands(nodes, groups) {
     }
     if (columns.size === 0) continue
     const height = Math.max(...columns.values()) * BAND_ROW + BAND_PADDING
-    centres.set(group.id, top + height / 2)
+    bands.set(group.id, { top, centre: top + height / 2, bottom: top + height })
     top += height
   }
-  for (const [id, y] of centres) centres.set(id, y - top / 2)
-  return centres
+  const shift = top / 2
+  for (const band of bands.values()) {
+    band.top -= shift
+    band.centre -= shift
+    band.bottom -= shift
+  }
+  return bands
+}
+
+/** The vertical centre of each domain's band (see bandExtents). */
+export function groupBands(nodes, groups) {
+  return new Map([...bandExtents(nodes, groups)].map(([id, band]) => [id, band.centre]))
 }
 
 /**
@@ -261,11 +274,12 @@ export function bandRows(nodes, groups) {
 }
 
 /**
- * The area each domain covers on the map, from its topics' current positions: a box around them
- * with room for labels, and space at the top for the domain's name. Domains with no placed topics
- * are left out.
+ * The area each domain covers on the map: across its topics' current positions, with room for
+ * labels. Vertically it is the domain's band when `bands` (from bandExtents) are given, so boxes
+ * never overlap; otherwise a box around the topics with space at the top for the domain's name.
+ * Domains with no placed topics are left out.
  */
-export function groupBoxes(nodes, groups, scale = 1) {
+export function groupBoxes(nodes, groups, scale = 1, bands = null) {
   const zoomedOut = scale < LABEL_MIN_SCALE
   // Labels sit under each topic and are wider than it, so the box leaves more room there.
   const padX = 50
@@ -277,13 +291,16 @@ export function groupBoxes(nodes, groups, scale = 1) {
     if (placed.length === 0) return []
     const xs = placed.map((n) => n.x)
     const ys = placed.map((n) => n.y)
+    const band = bands?.get(group.id)
+    const top = band ? band.top + BAND_GAP / 2 : Math.min(...ys) - padTop - titleSpace
+    const bottom = band ? band.bottom - BAND_GAP / 2 : Math.max(...ys) + padBottom
     return [{
       id: group.id,
       name: group.name,
       x: Math.min(...xs) - padX,
-      y: Math.min(...ys) - padTop - titleSpace,
+      y: top,
       width: Math.max(...xs) - Math.min(...xs) + 2 * padX,
-      height: Math.max(...ys) - Math.min(...ys) + padTop + padBottom + titleSpace,
+      height: bottom - top,
     }]
   })
 }
@@ -292,10 +309,10 @@ export function groupBoxes(nodes, groups, scale = 1) {
  * Draw each domain's area under the topics, named in its corner. Zoomed out, where topic labels
  * are hidden, the names are drawn large so the map reads as its domains.
  */
-export function paintGroups(ctx, scale, nodes, groups, palette) {
+export function paintGroups(ctx, scale, nodes, groups, palette, bands = null) {
   const zoomedOut = scale < LABEL_MIN_SCALE
   const fontSize = (zoomedOut ? 20 : 12) / scale
-  for (const box of groupBoxes(nodes, groups, scale)) {
+  for (const box of groupBoxes(nodes, groups, scale, bands)) {
     ctx.save()
     ctx.beginPath()
     ctx.rect(box.x, box.y, box.width, box.height)

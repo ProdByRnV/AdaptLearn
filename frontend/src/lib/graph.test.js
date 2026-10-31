@@ -5,6 +5,7 @@ import { DOMAINS, topicGraph, topicMap } from '@/test/fixtures'
 import {
   BAND_PADDING,
   BAND_ROW,
+  bandExtents,
   bandRows,
   endId,
   groupBands,
@@ -314,6 +315,17 @@ describe('the whole map', () => {
     }
   })
 
+  it("gives each band a top and bottom that meet the next band's, around its centre", () => {
+    const bands = bandExtents(nodes, DOMAINS)
+    const foundations = bands.get('foundations')
+    const web = bands.get('web-development')
+    expect(foundations.bottom).toBe(web.top)
+    expect(foundations.bottom - foundations.top).toBe(1 * BAND_ROW + BAND_PADDING)
+    expect(web.bottom - web.top).toBe(2 * BAND_ROW + BAND_PADDING)
+    expect(foundations.top).toBe(-web.bottom) // the stack is centred on 0
+    expect(groupBands(nodes, DOMAINS).get('web-development')).toBe(web.centre)
+  })
+
   it('leaves out domains without topics', () => {
     const bands = groupBands(nodes, [...DOMAINS, { id: 'empty', name: 'Empty' }])
     expect([...bands.keys()]).toEqual(['foundations', 'web-development'])
@@ -333,6 +345,25 @@ describe('the whole map', () => {
     expect(box.height).toBe(50 + 20 + 40 + 20)
     // Zoomed out, the name is drawn larger, so it gets more room.
     expect(groupBoxes(placed, DOMAINS, LABEL_MIN_SCALE / 2)[0].y).toBeLessThan(box.y)
+  })
+
+  it("with bands, each box spans its domain's band, so boxes never overlap at any zoom", () => {
+    // Seen with Python: a topic pulled towards a prerequisite two domains away made boxes overlap.
+    const bands = new Map([
+      ['foundations', { top: -300, centre: -200, bottom: -100 }],
+      ['web-development', { top: -100, centre: 0, bottom: 100 }],
+    ])
+    const placed = [
+      { id: 'a', home_domain: 'foundations', x: 0, y: -250 },
+      { id: 'b', home_domain: 'foundations', x: 100, y: -150 },
+      { id: 'c', home_domain: 'web-development', x: 0, y: 0 },
+    ]
+    for (const scale of [1, 0.2]) {
+      const [foundations, web] = groupBoxes(placed, DOMAINS, scale, bands)
+      expect(foundations).toMatchObject({ x: -50, width: 200, y: -297, height: 194 })
+      expect(web).toMatchObject({ y: -97, height: 194 })
+      expect(foundations.y + foundations.height).toBeLessThan(web.y)
+    }
   })
 
   it('draws each domain behind its topics, with its name larger when zoomed out', () => {

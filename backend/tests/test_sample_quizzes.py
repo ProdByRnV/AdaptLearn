@@ -43,17 +43,17 @@ def test_a_domain_is_sampled_and_written_up_for_review(fake_llm, report):
     sleeps = []
     code, out = run(["--domain", "foundations", "--out", str(report), "--pause", "7"], sleeps)
     assert code == 0
-    assert len(fake_llm.calls) == 3 and len(fake_llm.check_calls) == 3
-    assert sleeps == [7, 7]  # between topics, not before the first
-    assert "command_line_basics: 3 questions, 1 rejected" in out
+    assert len(fake_llm.calls) == 10 and len(fake_llm.check_calls) == 10
+    assert sleeps == [7] * 9  # between topics, not before the first
+    assert "how_computers_work: 3 questions, 1 rejected" in out
     text = report.read_text(encoding="utf-8")
     assert text.startswith("# Sample AI quizzes: Foundations")
-    assert "3 topics, 9 questions, 1 rejected by the answer check." in text
-    assert "## Command Line Basics (`command_line_basics`, level 1)" in text
+    assert "10 topics, 30 questions, 1 rejected by the answer check." in text
+    assert "## How Computers Work (`how_computers_work`, level 1)" in text
     assert "- A (key): Right answer 0" in text and "- B: Wrong A0" in text
     assert "Explanation: Because answer 0 is right." in text
     assert "Answer check: **REJECTED** (correct: A, C; sound: True). C works too." in text
-    assert text.count("Answer check: passed") == 8
+    assert text.count("Answer check: passed") == 29
 
 
 def test_the_prompt_is_the_one_learners_get(fake_llm, report):
@@ -96,17 +96,17 @@ def test_a_daily_limit_stops_the_run_and_keeps_what_was_done(fake_llm, report):
     fake_llm.script = [fake_llm.last_quiz, rate_limited("3600")]
     code, out = run(["--domain", "foundations", "--out", str(report)])
     assert code == 1
-    assert "a daily limit is reached; 2 topic(s) not sampled" in out
+    assert "a daily limit is reached; 9 topic(s) not sampled" in out
     text = report.read_text(encoding="utf-8")
-    assert "**Stopped early:**" in text and "## Command Line Basics" in text and "## How the Internet Works" not in text
+    assert "**Stopped early:**" in text and "## How Computers Work" in text and "## Binary & Data Representation" not in text
 
 
 def test_other_groq_errors_are_recorded_and_the_run_goes_on(fake_llm, report):
     fake_llm.script = [api_status_error(503)]
     code, out = run(["--domain", "foundations", "--out", str(report)])
     assert code == 0
-    assert "command_line_basics: 0 questions, 0 rejected - Groq error" in out
-    assert "how_the_internet_works: 3 questions" in out
+    assert "how_computers_work: 0 questions, 0 rejected - Groq error" in out
+    assert "binary_data_representation: 3 questions" in out
 
 
 def test_rate_limit_helper_gives_up_after_one_wait():

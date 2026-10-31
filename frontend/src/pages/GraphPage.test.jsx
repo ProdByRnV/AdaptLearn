@@ -7,6 +7,7 @@ import { fetchCurrentUser } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
 import { fetchCatalogue } from '@/api/domains'
 import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
+import { bandExtents, bandRows } from '@/lib/graph'
 import { catalogue, topicGraph, topicMap } from '@/test/fixtures'
 import { deferred, httpError, LEARNER } from '@/test/helpers'
 import { renderAt } from '@/test/render-app'
@@ -358,11 +359,21 @@ describe('the full map', () => {
 
   it('groups topics by domain: a band per domain, and each domain drawn behind its topics', async () => {
     await openMap()
-    expect(graph.api.d3Force).toHaveBeenCalledWith('band', expect.any(Function))
+    // Every topic is fixed to its row in its domain's band (set once the graph has mounted).
+    const rows = bandRows(topicMap().nodes, topicMap().domains)
+    await waitFor(() => expect(graph.props.graphData.nodes.every((n) => n.fy === rows.get(n.id))).toBe(true))
     expect(graph.props.onRenderFramePre).toEqual(expect.any(Function))
     const ctx = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn() }
     act(() => graph.props.onRenderFramePre(ctx, 1))
     expect(ctx.fillText.mock.calls.map(([text]) => text)).toEqual(['Foundations', 'Web Development'])
+    // Each domain's box spans its band (just inside its edges), so neighbouring boxes can't overlap.
+    const bands = [...bandExtents(topicMap().nodes, topicMap().domains).values()]
+    const boxes = ctx.rect.mock.calls.map(([, y, , height]) => [y, y + height])
+    boxes.forEach(([top, bottom], i) => {
+      expect(top).toBeCloseTo(bands[i].top, -1)
+      expect(bottom).toBeCloseTo(bands[i].bottom, -1)
+    })
+    expect(boxes[0][1]).toBeLessThan(boxes[1][0])
   })
 
   it('always starts fitted, so it opens on the domains', async () => {
@@ -376,7 +387,8 @@ describe('the full map', () => {
   it("a domain's own graph isn't grouped", async () => {
     await open()
     expect(graph.props.onRenderFramePre).toBeUndefined()
-    expect(graph.api.d3Force).not.toHaveBeenCalledWith('band', expect.anything())
+    await waitFor(() => expect(graph.api.d3Force).toHaveBeenCalledWith('collide', expect.anything()))
+    expect(graph.props.graphData.nodes.every((n) => n.fy === undefined)).toBe(true)
   })
 
   it('lists every domain a topic belongs to, each linking to that domain', async () => {

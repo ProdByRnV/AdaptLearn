@@ -93,6 +93,14 @@ def _repaired_maths(text: str) -> str:
     return text
 
 
+def _no_escaped_line_breaks(text: str) -> str:
+    """A literal backslash-n left outside code and maths (after _unescape_code) is a line break the
+    model escaped in only part of the text, e.g. an option "True\\n7". It would show as \\n."""
+    if "\\n" in _MATH_SPAN.sub("", _CODE.sub("", text)):
+        raise ValueError("a line break is written as \\n outside code")
+    return text
+
+
 # --- Internal: quiz content with answers (LLM output, fallback bank, quiz_sessions) ---
 
 class QuizQuestion(BaseModel):
@@ -112,16 +120,23 @@ class QuizQuestion(BaseModel):
             raise ValueError("must contain text, not only an empty code block")
         return _repaired_maths(repaired)
 
+    @field_validator("question")
+    @classmethod
+    def question_has_real_line_breaks(cls, text: str) -> str:
+        return _no_escaped_line_breaks(text)
+
     @field_validator("options")
     @classmethod
     def options_are_distinct(cls, options: list[str]) -> list[str]:
-        if len({normalise(o) for o in options}) != len(options):
+        # Letter case counts ("DataScience" and "datascience" are different string results); runs of
+        # spaces don't, because the page shows them as one.
+        if len({" ".join(o.split()) for o in options}) != len(options):
             raise ValueError("options must be distinct")
         # ["D", "A", "B", "C"] points at choices written into the question, which clash with the
         # letters the quiz page shows next to each option.
         if all(_LETTER_ONLY.match(o) for o in options):
             raise ValueError("options must be answers, not letters referring to the question")
-        return [_repaired_maths(_unescape_code(o)) for o in options]
+        return [_no_escaped_line_breaks(_repaired_maths(_unescape_code(o))) for o in options]
 
 
 class QuizContent(BaseModel):

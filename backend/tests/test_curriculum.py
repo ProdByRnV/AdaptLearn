@@ -15,6 +15,7 @@ from seed.curriculum import (
     validate_curriculum,
 )
 from seed.domains.foundations import FOUNDATIONS
+from seed.domains.python import PYTHON
 from seed.domains.web_development import WEB_DEVELOPMENT
 
 # ARCHITECTURE.md section 7: id -> difficulty
@@ -41,7 +42,7 @@ def test_real_curriculum_is_valid():
 
 
 def test_domains_and_default():
-    assert [d.id for d in DOMAINS] == ["foundations", "web-development"]
+    assert [d.id for d in DOMAINS] == ["foundations", "web-development", "python"]
     assert DEFAULT_DOMAIN == "web-development"
     assert DOMAIN_BY_ID["web-development"].name == "Web Development"
 
@@ -84,9 +85,35 @@ def test_sample_edges_point_from_prerequisite_to_dependent(edge):
 
 # --- Foundations and sharing -----------------------------------------------------------
 
-def test_foundations_starter_set():
-    assert set(FOUNDATIONS.topic_ids) == {"command_line_basics", "how_the_internet_works", "git_basics"}
-    assert all(TOPIC_BY_ID[i].difficulty == 1 for i in FOUNDATIONS.topic_ids)
+EXPECTED_FOUNDATIONS = {
+    "how_computers_work": 1, "binary_data_representation": 1, "data_formats": 2, "programming_concepts": 1,
+    "algorithmic_thinking": 2, "command_line_basics": 1, "operating_system_basics": 2, "git_basics": 1,
+    "how_the_internet_works": 1, "security_basics": 1,
+}
+
+
+def _needs(topic_id: str) -> set[str]:
+    return {s for s, t in PREREQUISITES if t == topic_id}
+
+
+def test_foundations_topics_and_difficulties():
+    assert {i: TOPIC_BY_ID[i].difficulty for i in FOUNDATIONS.topic_ids} == EXPECTED_FOUNDATIONS
+    assert FOUNDATIONS.shared == ()
+
+
+def test_foundations_original_topics_are_still_starting_topics():
+    # Learners who began on these keep them open, and Web Development's starting topics don't change.
+    for topic_id in ("command_line_basics", "how_the_internet_works", "git_basics"):
+        assert _needs(topic_id) == set(), topic_id
+    starting = {i for i in FOUNDATIONS.topic_ids if not _needs(i)}
+    assert starting == {
+        "how_computers_work", "programming_concepts", "command_line_basics", "git_basics", "how_the_internet_works",
+    }
+
+
+def test_no_prerequisite_reaches_into_web_development_from_another_domain():
+    web = set(WEB_DEVELOPMENT.topic_ids)
+    assert {(s, t) for s, t in PREREQUISITES if t in web and s not in web} == set()
 
 
 def test_git_basics_is_defined_once_in_foundations_and_shared_with_web_development():
@@ -95,9 +122,48 @@ def test_git_basics_is_defined_once_in_foundations_and_shared_with_web_developme
     assert [t.id for t in TOPICS].count("git_basics") == 1
 
 
+# --- Python ------------------------------------------------------------------------------
+
+EXPECTED_PYTHON = {
+    "python_basics": 1, "python_control_flow": 1, "python_strings": 1, "python_functions": 2,
+    "python_lists_tuples": 2, "python_dicts_sets": 2, "python_comprehensions": 2, "python_modules": 2,
+    "python_virtual_environments": 2, "python_standard_library": 2, "python_files": 2, "python_exceptions": 2,
+    "python_type_hints": 2, "python_oop": 3, "python_inheritance": 3, "python_iterators_generators": 3,
+    "python_decorators": 3, "python_testing": 3, "python_http_requests": 3, "python_async": 4,
+}
+
+
+def test_python_topics_and_difficulties():
+    assert {i: TOPIC_BY_ID[i].difficulty for i in PYTHON.topic_ids} == EXPECTED_PYTHON
+    assert len(PYTHON.prerequisites) == 28
+
+
+def test_python_starts_from_python_basics_with_no_prerequisites():
+    assert [i for i in PYTHON.topic_ids if not _needs(i)] == ["python_basics"]
+
+
+def test_python_builds_on_three_foundations_topics():
+    python = set(PYTHON.topic_ids)
+    assert {(s, t) for s, t in PREREQUISITES if t in python and s not in python} == {
+        ("command_line_basics", "python_virtual_environments"),
+        ("data_formats", "python_files"),
+        ("how_the_internet_works", "python_http_requests"),
+    }
+
+
+def test_every_python_topic_can_be_reached_from_python_basics_and_foundations():
+    done = set(FOUNDATIONS.topic_ids)
+    remaining = set(PYTHON.topic_ids)
+    while remaining:
+        ready = {i for i in remaining if _needs(i) <= done}
+        assert ready, f"unreachable: {sorted(remaining)}"
+        done |= ready
+        remaining -= ready
+
+
 def test_pool_holds_every_topic_once():
     ids = [t.id for t in TOPICS]
-    assert len(ids) == len(set(ids)) == 32
+    assert len(ids) == len(set(ids)) == 59
     assert set(ids) == {i for d in DOMAINS for i in d.topic_ids}
 
 

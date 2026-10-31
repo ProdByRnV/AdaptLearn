@@ -12,7 +12,7 @@ import pytest
 
 from seed import check_content
 from seed.check_content import Finding, check_link, check_online, check_static, check_video, youtube_video_id
-from seed.curriculum import DOMAINS
+from seed.curriculum import DOMAIN_BY_ID, DOMAINS
 from seed.fallback_questions import FALLBACK_QUESTIONS
 from seed.model import Domain, Topic, article, docs, video
 
@@ -144,7 +144,7 @@ def test_fallback_questions_for_a_topic_that_does_not_exist():
 @pytest.mark.parametrize(
     ("question", "expected"),
     [
-        (q("Dupes?", "Same", ("same", "Other", "Another")), "fallback question 1 is invalid: Value error, options must be distinct"),
+        (q("Dupes?", "Same one", ("Same  one", "Other", "Another")), "fallback question 1 is invalid: Value error, options must be distinct"),
         (q("What is \\( x^2 ?"), "fallback question 1 is invalid: Value error, maths opened with \\( is never closed"),
         (q("Which?", "All of the above"), "fallback question 1 uses an all/none-of-the-above option"),
         (q("Which?", "Right", ("None of the options", "B", "C")), "uses an all/none-of-the-above option"),
@@ -357,7 +357,7 @@ def test_the_command_checks_one_domain_and_opens_links_only_when_asked(monkeypat
     assert check_content.main(["--domain", "foundations"], out) == 0
     assert calls == {"only": ["foundations"]}
     assert check_content.main(["--domain", "foundations", "--online"], out) == 0
-    assert calls["online"] == ["command_line_basics", "how_the_internet_works", "git_basics"]
+    assert calls["online"] == [t.id for t in DOMAIN_BY_ID["foundations"].topics]
     assert "(opened)" in out.getvalue()
 
 

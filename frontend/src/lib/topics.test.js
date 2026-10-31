@@ -69,6 +69,16 @@ describe('display helpers', () => {
   ])('listNames %j', (names, text) => {
     expect(listNames(names)).toBe(text)
   })
+
+  it.each([
+    [['A', 'B', 'C'], 3, 'A, B and C'],
+    [['A', 'B', 'C'], 4, 'A, B and C'],
+    [['A', 'B', 'C', 'D'], 4, 'A, B, C and D'],
+    [['A', 'B', 'C', 'D', 'E'], 4, 'A, B, C, D and 1 more'],
+  ])('listNames %j with up to %i names', (names, max, text) => {
+    // Seen with Python's three-prerequisite topics: the names used to run together ("ABC").
+    expect(listNames(names, max)).toBe(text)
+  })
 })
 
 describe('retryTopicIds', () => {

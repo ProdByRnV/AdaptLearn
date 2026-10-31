@@ -60,6 +60,8 @@ breaks between its lines; use single backticks for short inline code. Only inclu
 learner needs to read to answer; never add an empty or placeholder block (such as "# your answer").
 Each option must be a complete answer on its own. Never write options that refer to choices listed
 in the question (such as "A" or "option B"): the app labels the options itself.
+When options are values that differ only in letter case or spaces (such as string results), write
+each as inline code with its quotes, for example `'  hi  '` and `'hi'`, so the difference is visible.
 When a question needs mathematical notation, write it in LaTeX between \\( and \\) inside a sentence, or
 between \\[ and \\] for a formula on its own line (escape the backslashes in JSON). Never use $ signs
 around maths. Don't use LaTeX for code or for plain numbers."""

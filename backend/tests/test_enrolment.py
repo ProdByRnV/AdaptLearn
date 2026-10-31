@@ -1,8 +1,8 @@
 """Joining domains, per-domain onboarding, the domain catalogue and the home page (Phase 23).
 
-Uses the real curriculum: Foundations (command_line_basics, how_the_internet_works, git_basics)
-and Web Development (30 topics, sharing git_basics). Cross-domain prerequisites are covered with
-the test domains in test_domains.py.
+Uses the real curriculum: Foundations (10 topics, five of them starting topics, including
+git_basics), Web Development (30 topics, sharing git_basics) and Python (20 topics, one starting
+topic). Cross-domain prerequisites are covered with the test domains in test_domains.py.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -18,6 +18,13 @@ pytestmark = pytest.mark.usefixtures("curriculum")
 
 WEB = "web-development"
 FOUNDATIONS = "foundations"
+PYTHON = "python"
+# Every Foundations topic: onboarding with all of them completes the domain.
+ALL_FOUNDATIONS = [
+    "how_computers_work", "binary_data_representation", "data_formats", "programming_concepts",
+    "algorithmic_thinking", "command_line_basics", "operating_system_basics", "git_basics",
+    "how_the_internet_works", "security_basics",
+]
 
 
 def catalogue(client, headers):
@@ -89,18 +96,18 @@ def test_catalogue_lists_every_domain_in_curriculum_order_with_its_size(client, 
     response = client.get("/api/domains", headers=headers)
 
     domains = response.json()["domains"]
-    assert [d["id"] for d in domains] == [FOUNDATIONS, WEB]
-    foundations, web = domains
-    assert (foundations["name"], foundations["total_topics"], web["name"], web["total_topics"]) == (
-        "Foundations", 3, "Web Development", 30
-    )
-    assert foundations["description"] and web["description"]
+    assert [d["id"] for d in domains] == [FOUNDATIONS, WEB, PYTHON]
+    foundations, web, python = domains
+    assert [(d["name"], d["total_topics"]) for d in domains] == [
+        ("Foundations", 10), ("Web Development", 30), ("Python", 20)
+    ]
+    assert all(d["description"] for d in domains)
     for d in domains:
         assert (d["joined"], d["joined_at"], d["onboarded"], d["suggested"]) == (False, None, False, False)
         assert (d["completed_topics"], d["in_progress_topics"], d["progress_percent"]) == (0, 0, 0.0)
         assert d["known_topics"] == [] and d["ready_topics"] == [] and d["curriculum_complete"] is False
-    # Every Foundations topic is a starting topic; Web Development has four (Git Basics is shared).
-    assert (foundations["available_topics"], web["available_topics"]) == (3, 4)
+    # Starting topics: five in Foundations, four in Web Development (Git Basics is shared), one in Python.
+    assert (foundations["available_topics"], web["available_topics"], python["available_topics"]) == (5, 4, 1)
     assert progress_rows(db, user_id) == {}  # reading the catalogue writes nothing for a new learner
 
 
@@ -113,7 +120,7 @@ def test_catalogue_counts_progress_made_through_another_domain(client, make_user
     web, foundations = by_id[WEB], by_id[FOUNDATIONS]
     assert (web["completed_topics"], web["progress_percent"], web["joined"], web["onboarded"]) == (3, 10.0, True, True)
     # Git Basics counts in Foundations too, so the learner has a head start there.
-    assert (foundations["completed_topics"], foundations["progress_percent"]) == (1, 33.3)
+    assert (foundations["completed_topics"], foundations["progress_percent"]) == (1, 10.0)
     assert foundations["known_topics"] == [{"id": "git_basics", "name": "Git Basics"}]
     assert (foundations["joined"], foundations["suggested"]) == (False, True)
     assert [t["id"] for t in web["known_topics"]] == ["css_basics", "git_basics", "html_basics"]
@@ -136,7 +143,7 @@ def test_a_joined_domain_is_never_suggested(client, make_user):
 
 def test_completed_domain(client, make_user):
     _, headers = make_user()
-    onboard(client, headers, FOUNDATIONS, ["command_line_basics", "how_the_internet_works", "git_basics"])
+    onboard(client, headers, FOUNDATIONS, ALL_FOUNDATIONS)
 
     foundations = catalogue(client, headers)[FOUNDATIONS]
 
@@ -184,7 +191,7 @@ def test_enrolment_in_a_domain_no_longer_offered_is_ignored(client, make_user, d
     db.add(DomainEnrolment(user_id=user_id, domain_id="retired-domain"))
     db.commit()
 
-    assert set(catalogue(client, headers)) == {FOUNDATIONS, WEB}
+    assert set(catalogue(client, headers)) == {FOUNDATIONS, WEB, PYTHON}
     assert home(client, headers)["domains"] == []
 
 
@@ -363,7 +370,7 @@ def test_home_without_any_head_start_suggests_nothing(client, make_user):
 
 def test_completed_domain_has_no_next_topic(client, make_user):
     _, headers = make_user()
-    onboard(client, headers, FOUNDATIONS, ["command_line_basics", "how_the_internet_works", "git_basics"])
+    onboard(client, headers, FOUNDATIONS, ALL_FOUNDATIONS)
 
     body = home(client, headers)
 

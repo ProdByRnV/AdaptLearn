@@ -18,7 +18,7 @@ from config import get_settings
 from models import QuizAttempt, QuizIntegrity, QuizSession, TopicProgress
 from schemas.quiz import QuizContent, QuizQuestion
 from seed.curriculum import TOPICS
-from seed.fallback_questions import FALLBACK_QUESTIONS
+from seed.fallback_questions import FALLBACK_QUESTIONS, merge
 from services import llm_quiz
 from services.llm_quiz import InvalidQuizOutput, generate_questions, parse_quiz
 from services.quiz_service import shuffle_options
@@ -105,7 +105,7 @@ def test_accidental_code_fences_are_stripped():
         (quiz_json(make_question(0, question="  "), make_question(1), make_question(2)), "schema"),
         (quiz_json(make_question(0, options=["a", " ", "c", "d"]), make_question(1), make_question(2)), "schema"),
         (quiz_json(make_question(0, explanation=""), make_question(1), make_question(2)), "schema"),
-        (quiz_json(make_question(0, options=["Yes", "yes ", "No", "Maybe"]), make_question(1), make_question(2)),
+        (quiz_json(make_question(0, options=["Yes", "Yes  ", "No", "Maybe"]), make_question(1), make_question(2)),
          "distinct"),
         (quiz_json(make_question(0), make_question(0), make_question(2)), "distinct"),
     ],
@@ -136,6 +136,18 @@ def test_options_that_only_name_letters_are_rejected(options):
         parse_quiz(quiz_json(q, make_question(1), make_question(2)))
 
 
+def test_options_differing_only_in_letter_case_are_distinct():
+    # String results: "DataScience".lower() and .upper() are different answers (seen in Phase 26 samples).
+    q = make_question(0, options=["DataScience", "datascience", "DATASCIENCE", "Data Science"])
+    assert parse_quiz(quiz_json(q, make_question(1), make_question(2)))[0].options[1] == "datascience"
+
+
+def test_options_differing_only_in_spaces_look_the_same_and_are_rejected():
+    q = make_question(0, options=["HELLO, PYTHON!", "  HELLO,   PYTHON!  ", "hello", "Hello"])
+    with pytest.raises(InvalidQuizOutput, match="distinct"):
+        parse_quiz(quiz_json(q, make_question(1), make_question(2)))
+
+
 def test_a_single_letter_among_real_options_is_allowed():
     q = make_question(0, options=["A", "65", "undefined", "NaN"])
     assert parse_quiz(quiz_json(q, make_question(1), make_question(2)))[0].options[0] == "A"
@@ -153,13 +165,31 @@ def test_double_escaped_line_breaks_in_code_are_repaired():
 @pytest.mark.parametrize(
     "question",
     [
-        "What does console.log('a\\nb') print?",  # a backslash-n that belongs to the code
+        "What does `console.log('a\\nb')` print?",  # a backslash-n that belongs to the code
         "What is logged?\n```js\nconsole.log('a\\nb')\n```",  # real line breaks already present
+        "Is \\( a \\neq b \\) true?",  # \neq is a LaTeX command, not a line break
     ],
 )
 def test_meaningful_backslash_n_is_kept(question):
     parsed = parse_quiz(quiz_json(make_question(0, question=question), make_question(1), make_question(2)))[0]
     assert parsed.question == question
+
+
+@pytest.mark.parametrize(
+    "question, options",
+    [
+        # Seen in Phase 26 samples: line breaks escaped in only part of the text show as \n.
+        ("What does the code print?\\n```python\nprint(3 in {3})\nprint(1)\n```", None),
+        ("What is printed?", ["True\\n7", "False\\n4", "True\\n4", "True\\n5"]),
+        ("Which snippet works?", ['"import requests\\nr = requests.get(url, timeout=5)"', "b", "c", "d"]),
+        # Code belongs in backticks; outside them a backslash-n can't be told apart from a broken line break.
+        ("What does console.log('a\\nb') print?", None),
+    ],
+)
+def test_a_line_break_escaped_outside_code_is_rejected(question, options):
+    q = make_question(0, question=question, **({"options": options} if options else {}))
+    with pytest.raises(InvalidQuizOutput, match="line break is written as"):
+        parse_quiz(quiz_json(q, make_question(1), make_question(2)))
 
 
 @pytest.mark.parametrize(
@@ -290,6 +320,13 @@ def test_fallback_questions_pass_the_same_validation_as_ai_output(topic_id):
 def test_fallback_questions_are_unique_across_the_bank():
     texts = [q["question"] for items in FALLBACK_QUESTIONS.values() for q in items]
     assert len(texts) == len(set(texts))
+
+
+def test_fallback_banks_merge_and_reject_a_topic_defined_twice():
+    one, two = {"a": [{"question": "1"}]}, {"b": [{"question": "2"}]}
+    assert merge(one, two) == {"a": [{"question": "1"}], "b": [{"question": "2"}]}
+    with pytest.raises(ValueError, match="fallback questions for a are defined twice"):
+        merge(one, {"a": []})
 
 
 # --- Option shuffling ---------------------------------------------------------------------
@@ -437,6 +474,7 @@ def test_quiz_before_onboarding_initialises_progress(client, make_user, fake_llm
     rows = db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id)).all()
     assert {r.topic_id for r in rows} == {
         ROOT, "html_basics", "javascript_fundamentals", "sql_basics", "command_line_basics", "how_the_internet_works",
+        "how_computers_work", "programming_concepts", "python_basics",
     }
     assert progress_row(db, user_id, ROOT).status == "in_progress"
     nodes = {n["id"]: n for n in client.get("/api/topics/graph", headers=headers).json()["nodes"]}
