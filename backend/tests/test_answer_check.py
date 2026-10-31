@@ -236,6 +236,18 @@ def test_other_topics_get_no_extra_rule():
     assert "Rule:" not in llm_quiz.build_user_prompt(TOPIC, "Web Development")
 
 
+def test_real_cybersecurity_quizzes_are_sent_with_the_rule(client, make_user, fake_llm):
+    # The real curriculum: a Cybersecurity topic, and Security Basics, which Foundations shares with it.
+    _, headers = make_user()
+    known = {"domain": "foundations", "topic_ids": ["how_the_internet_works"]}
+    assert client.post("/api/topics/mark-known", json=known, headers=headers).status_code == 200
+    for topic_id in ("sec_principles", "security_basics"):
+        assert client.get(f"/api/quiz/generate/{topic_id}", headers=headers).status_code == 200
+    assert len(fake_llm.calls) == 2
+    for call in fake_llm.calls:
+        assert call["messages"][-1]["content"].endswith("Rule: " + llm_quiz.DOMAIN_RULES["cybersecurity"])
+
+
 # --- Maths ---------------------------------------------------------------------------------
 
 def test_the_prompt_asks_for_latex_between_unambiguous_delimiters():

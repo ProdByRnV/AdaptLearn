@@ -21,6 +21,7 @@ ROOTS = {"html_basics", "javascript_fundamentals", "git_basics", "sql_basics"}
 OTHER_ROOTS = {
     "command_line_basics", "how_the_internet_works", "how_computers_work", "programming_concepts", "python_basics",
     "ds_descriptive_stats", "ml_what_is_ml", "ml_linear_algebra", "db_data_models", "cs_complexity",
+    "sec_principles", "devops_culture",
 }
 NAMES = {t.id: t.name for t in TOPICS}
 

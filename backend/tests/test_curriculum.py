@@ -15,7 +15,9 @@ from seed.curriculum import (
     validate_curriculum,
 )
 from seed.domains.ai_ml import AI_ML
+from seed.domains.cloud_devops import CLOUD_DEVOPS
 from seed.domains.cs_core import CS_CORE
+from seed.domains.cybersecurity import CYBERSECURITY
 from seed.domains.data_science import DATA_SCIENCE
 from seed.domains.databases import DATABASES
 from seed.domains.foundations import FOUNDATIONS
@@ -48,6 +50,7 @@ def test_real_curriculum_is_valid():
 def test_domains_and_default():
     assert [d.id for d in DOMAINS] == [
         "foundations", "web-development", "python", "data-science", "ai-ml", "databases", "cs-core",
+        "cybersecurity", "cloud-devops",
     ]
     assert DEFAULT_DOMAIN == "web-development"
     assert DOMAIN_BY_ID["web-development"].name == "Web Development"
@@ -293,6 +296,68 @@ def test_databases_and_cs_core_build_on_earlier_domains():
     }
 
 
+# --- Cybersecurity and Cloud & DevOps ---------------------------------------------------------
+
+EXPECTED_CYBERSECURITY = {
+    "sec_principles": 1, "sec_threats_attacks": 2, "sec_cryptography": 2, "sec_pki_tls": 3,
+    "sec_identity_access": 3, "sec_threat_modelling": 3, "sec_network_security": 3, "sec_web_security": 3,
+    "sec_secure_coding": 3, "sec_system_hardening": 3, "sec_vulnerability_management": 3,
+    "sec_logging_monitoring": 3, "sec_incident_response": 4, "sec_forensics": 4, "sec_penetration_testing": 4,
+    "sec_cloud_security": 4, "sec_privacy_compliance": 3,
+}
+EXPECTED_CLOUD_DEVOPS = {
+    "devops_culture": 1, "devops_linux_admin": 2, "devops_shell_scripting": 2, "devops_git_workflows": 2,
+    "devops_ci": 3, "devops_cd": 3, "devops_containers": 3, "devops_kubernetes": 4, "devops_iac": 3,
+    "devops_config_management": 3, "cloud_computing_basics": 1, "cloud_compute": 2, "cloud_storage": 2,
+    "cloud_iam": 3, "cloud_networking": 3, "cloud_serverless": 3, "cloud_architecture": 4,
+    "devops_monitoring": 3, "devops_sre": 4, "devops_devsecops": 4,
+}
+
+
+def test_cybersecurity_topics_and_difficulties():
+    assert CYBERSECURITY.id == "cybersecurity"  # the id that switches on the defensive-only quiz rule
+    assert {t.id: t.difficulty for t in CYBERSECURITY.topics} == EXPECTED_CYBERSECURITY
+    assert len(CYBERSECURITY.prerequisites) == 26
+    # Security Basics lives in Foundations and is shared, so progress on it counts in both.
+    assert CYBERSECURITY.shared == ("security_basics",)
+
+
+def test_cloud_devops_topics_and_difficulties():
+    assert {t.id: t.difficulty for t in CLOUD_DEVOPS.topics} == EXPECTED_CLOUD_DEVOPS
+    assert len(CLOUD_DEVOPS.prerequisites) == 31
+    assert CLOUD_DEVOPS.shared == ()
+
+
+def test_starting_topics_of_cybersecurity_and_cloud_devops():
+    assert [i for i in CYBERSECURITY.topic_ids if not _needs(i)] == ["sec_principles"]
+    assert [t.id for t in CLOUD_DEVOPS.topics if not _needs(t.id)] == ["devops_culture"]
+
+
+def test_cybersecurity_and_cloud_devops_build_on_earlier_domains():
+    assert _edges_into(CYBERSECURITY) == {
+        ("security_basics", "sec_threats_attacks"),
+        ("binary_data_representation", "sec_cryptography"),
+        ("how_the_internet_works", "sec_pki_tls"),
+        ("programming_concepts", "sec_secure_coding"),
+        ("operating_system_basics", "sec_system_hardening"),
+        ("cloud_computing_basics", "sec_cloud_security"),
+    }
+    assert _edges_into(CLOUD_DEVOPS) == {
+        ("operating_system_basics", "devops_linux_admin"),
+        ("command_line_basics", "devops_shell_scripting"),
+        ("git_basics", "devops_git_workflows"),
+        ("how_the_internet_works", "cloud_computing_basics"),
+        ("security_basics", "cloud_iam"),
+    }
+
+
+def test_every_cybersecurity_topic_is_about_defence():
+    # The resources and descriptions are written from the defender's side; none promises attack how-tos.
+    for topic in CYBERSECURITY.topics:
+        text = f"{topic.name} {topic.description}".lower()
+        assert not any(word in text for word in ("exploit code", "payload", "bypass", "evade", "crack ")), topic.id
+
+
 def test_every_domain_has_a_starting_topic():
     # A learner who joins a domain can always start something in it, without another domain first.
     for domain in DOMAINS:
@@ -311,7 +376,7 @@ def test_every_topic_can_be_reached():
 
 def test_pool_holds_every_topic_once():
     ids = [t.id for t in TOPICS]
-    assert len(ids) == len(set(ids)) == 132
+    assert len(ids) == len(set(ids)) == 169
     assert set(ids) == {i for d in DOMAINS for i in d.topic_ids}
 
 
