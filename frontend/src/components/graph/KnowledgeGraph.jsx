@@ -5,9 +5,8 @@ import ForceGraph2D from 'react-force-graph-2d'
 
 import { Button } from '@/components/ui/button'
 import {
-  bandExtents,
-  bandRows,
   endId,
+  mapLayout,
   NODE_RADIUS,
   paintGroups,
   paintNode,
@@ -30,30 +29,42 @@ const FIT_PADDING = 64
  * prerequisite depth, with arrows from each prerequisite to the topic it unlocks. Drag to pan,
  * scroll or pinch to zoom, or use the buttons. Loaded on demand: the library is only needed here.
  *
- * With `groups` (the whole map's domains), each topic is fixed to its row in its home domain's band
- * and every domain's area is drawn behind its topics.
+ * With `groups` (the whole map's domains), each domain gets a tile laid out like its own graph, the
+ * tiles are packed into rows to suit the view's shape, and every topic is fixed in place, so there
+ * is no simulation to wait for.
  */
 export default function KnowledgeGraph({ data, groups = null, selectedId, onSelect, width, height }) {
   const graphRef = useRef(null)
   const fitted = useRef(false)
   const palette = useMemo(() => readPalette(), [])
   const related = useMemo(() => relatedIds(selectedId, data.nodes), [selectedId, data])
-  const bands = useMemo(() => (groups ? bandExtents(data.nodes, groups) : null), [groups, data])
-  // On the whole map every topic is fixed to its row in its domain's band. Pulled there by a force
-  // instead, links between distant domains would drag topics out of their band.
+  const aspect = (width - 2 * FIT_PADDING) / Math.max(1, height - 2 * FIT_PADDING)
+  const layout = useMemo(() => (groups ? mapLayout(data.nodes, groups, aspect) : null), [groups, data, aspect])
+  // Pulled into place by forces instead, links between distant domains would drag topics out of
+  // their tile.
   const graphData = useMemo(() => {
-    if (!groups) return data
-    const rows = bandRows(data.nodes, groups)
-    return { ...data, nodes: data.nodes.map((node) => ({ ...node, fy: rows.get(node.id) ?? 0 })) }
-  }, [groups, data])
+    if (!layout) return data
+    return {
+      ...data,
+      nodes: data.nodes.map((node) => {
+        const { x, y } = layout.positions.get(node.id) ?? { x: 0, y: 0 }
+        return { ...node, x, y, fx: x, fy: y }
+      }),
+    }
+  }, [layout, data])
 
   useEffect(() => {
     const graph = graphRef.current
     if (!graph) return
-    graph.d3Force('collide', forceCollide(COLLIDE_RADIUS))
-    graph.d3Force('charge')?.strength(-90)
+    graph.d3Force('collide', layout ? null : forceCollide(COLLIDE_RADIUS))
+    graph.d3Force('charge')?.strength(layout ? 0 : -90)
     graph.d3ReheatSimulation()
-  }, [graphData])
+  }, [graphData, layout])
+
+  // The map's tiles are rearranged when the view changes shape: show the whole of it again.
+  useEffect(() => {
+    if (layout && fitted.current) graphRef.current?.zoomToFit(400, FIT_PADDING)
+  }, [layout])
 
   // Centre the selected topic once it has a position (the layout writes positions into graphData).
   useEffect(() => {
@@ -65,6 +76,14 @@ export default function KnowledgeGraph({ data, groups = null, selectedId, onSele
     (link) => Boolean(selectedId) && (endId(link.source) === selectedId || endId(link.target) === selectedId),
     [selectedId],
   )
+  // On the whole map, links between domains are faint unless they touch the selection: Foundations'
+  // topics alone lead into most other domains.
+  const homes = useMemo(() => new Map(data.nodes.map((node) => [node.id, node.home_domain])), [data])
+  const linkColour = (link) => {
+    if (linkActive(link)) return palette.primary
+    const across = layout && homes.get(endId(link.source)) !== homes.get(endId(link.target))
+    return across ? palette.linkFaint : palette.link
+  }
 
   // The first view, once the layout has settled: the whole graph if it is readable, else the start
   // of it; a topic opened from a link (?topic=) is centred instead. The whole map always starts
@@ -92,22 +111,22 @@ export default function KnowledgeGraph({ data, groups = null, selectedId, onSele
         width={width}
         height={height}
         backgroundColor="rgba(0,0,0,0)"
-        dagMode="lr"
+        dagMode={layout ? undefined : 'lr'}
         dagLevelDistance={LEVEL_DISTANCE}
         nodeId="id"
         nodeRelSize={NODE_RADIUS}
         nodeVal={(node) => (node.id === selectedId ? (SELECTED_RADIUS / NODE_RADIUS) ** 2 : 1)}
         nodeLabel={() => ''}
-        onRenderFramePre={groups ? (ctx, scale) => paintGroups(ctx, scale, graphData.nodes, groups, palette, bands) : undefined}
+        onRenderFramePre={layout ? (ctx, scale) => paintGroups(ctx, scale, layout.tiles, palette) : undefined}
         nodeCanvasObject={(node, ctx, scale) => paintNode(node, ctx, scale, { palette, selectedId, related })}
         nodePointerAreaPaint={(node, color, ctx, scale) => paintNodeArea(node, color, ctx, selectedId, scale)}
-        linkColor={(link) => (linkActive(link) ? palette.primary : palette.link)}
+        linkColor={linkColour}
         linkWidth={(link) => (linkActive(link) ? 2 : 1)}
         linkDirectionalArrowLength={5}
         linkDirectionalArrowRelPos={1}
-        linkDirectionalArrowColor={(link) => (linkActive(link) ? palette.primary : palette.link)}
+        linkDirectionalArrowColor={linkColour}
         enableNodeDrag={false}
-        cooldownTicks={120}
+        cooldownTicks={layout ? 1 : 120}
         onEngineStop={() => {
           if (fitted.current) return
           fitted.current = true

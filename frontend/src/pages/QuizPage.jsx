@@ -33,6 +33,7 @@ function QuizFlow({ topicId }) {
 
   const topicsById = useMemo(() => new Map((graph?.nodes ?? []).map((t) => [t.id, t])), [graph])
   const topicNames = useMemo(() => new Map([...topicsById].map(([id, t]) => [id, t.name])), [topicsById])
+  const domainNames = useMemo(() => new Map((graph?.domains ?? []).map((d) => [d.id, d.name])), [graph])
   const topic = topicsById.get(topicId)
 
   // While the quiz runs the navbar is hidden, the browser warns before a reload or close, and
@@ -85,7 +86,7 @@ function QuizFlow({ topicId }) {
         (topic ? (
           <QuizIntro
             topic={topic}
-            prerequisiteNames={topic.prerequisites.map((id) => topicNames.get(id) ?? id)}
+            prerequisiteNames={unfinishedPrerequisites(topic, topicsById, domainNames)}
             otherActive={session.otherActive}
             startError={session.startError}
             preparing={stage === 'preparing'}
@@ -116,4 +117,17 @@ function QuizFlow({ topicId }) {
       {stage === 'ended' && <QuizEnded reason={session.ended} onRestart={session.restart} />}
     </div>
   )
+}
+
+/**
+ * What stands between the learner and a locked topic: its prerequisites not completed yet, those
+ * from another domain named with it, as the knowledge graph's topic panel does.
+ */
+function unfinishedPrerequisites(topic, topicsById, domainNames) {
+  return topic.prerequisites
+    .map((id) => topicsById.get(id))
+    .filter((pre) => pre && pre.status !== 'completed')
+    .map((pre) =>
+      pre.home_domain === topic.home_domain ? pre.name : `${pre.name} (${domainNames.get(pre.home_domain) ?? pre.home_domain})`,
+    )
 }

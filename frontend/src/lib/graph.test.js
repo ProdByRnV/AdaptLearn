@@ -3,15 +3,18 @@ import { describe, expect, it } from 'vitest'
 import { DOMAINS, topicGraph, topicMap } from '@/test/fixtures'
 
 import {
-  BAND_PADDING,
-  BAND_TITLE_ROOM,
-  BAND_ROW,
-  bandExtents,
-  bandRows,
+  domainTile,
   endId,
-  groupBands,
-  groupBoxes,
+  mapLayout,
+  packRows,
   paintGroups,
+  TILE_BOTTOM,
+  TILE_COLUMN,
+  TILE_GAP,
+  TILE_PAD_X,
+  TILE_ROW,
+  TILE_TITLE_ROOM,
+  TILE_TOP,
   topicDepths,
   LABEL_MIN_SCALE,
   MIN_START_SCALE,
@@ -27,6 +30,7 @@ import {
   statusCounts,
   toGraphData,
   unlocksOf,
+  withAlpha,
 } from './graph'
 
 const byId = (topics) => new Map(topics.map((t) => [t.id, t]))
@@ -99,6 +103,12 @@ describe('readPalette', () => {
     expect(palette.in_progress).toBe('#f59e0b')
     expect(palette.locked).toBe('#64748b')
     element.remove()
+  })
+
+  it('has a faint link colour for links between domains on the map', () => {
+    expect(readPalette().linkFaint).toBe('#cbd5e14d')
+    expect(withAlpha('#0f766e', 1)).toBe('#0f766eff')
+    expect(withAlpha('rgb(1 2 3)', 0.3)).toBe('rgb(1 2 3)')
   })
 })
 
@@ -263,6 +273,26 @@ describe('prerequisites from other domains', () => {
 
 describe('the whole map', () => {
   const { nodes } = topicMap()
+  const web = nodes.filter((n) => n.home_domain === 'web-development')
+  const palette = { primary: '#0f766e', primaryDark: '#134e4a', link: '#cbd5e1' }
+  /** A canvas context that records tiles and names drawn, measuring text at 0.6 of the font size per letter. */
+  const recordingContext = () => {
+    const texts = []
+    const ctx = {
+      save() {}, restore() {}, beginPath() {}, fill() {}, stroke() {},
+      rects: [],
+      rect(x, y, width, height) {
+        this.rects.push({ x, y, width, height })
+      },
+      measureText(text) {
+        return { width: text.length * 0.6 * Number.parseFloat(this.font.split(' ')[1]) }
+      },
+      fillText(text, x, y) {
+        texts.push({ text, x, y, size: Number.parseFloat(this.font.split(' ')[1]) })
+      },
+    }
+    return { ctx, texts }
+  }
 
   it('gives each topic its column: one past its deepest prerequisite', () => {
     const depths = topicDepths(nodes)
@@ -284,137 +314,138 @@ describe('the whole map', () => {
     expect([...depths.values()].every(Number.isFinite)).toBe(true)
   })
 
-  it('stacks a band per domain in curriculum order, each as tall as its busiest column', () => {
-    const bands = groupBands(nodes, DOMAINS)
-    // Foundations has one topic per column; Web Development's busiest column has two (CSS Basics
-    // and JavaScript Fundamentals, after HTML Basics).
-    const foundations = 1 * BAND_ROW + BAND_PADDING
-    const web = 2 * BAND_ROW + BAND_PADDING
-    const total = foundations + web
-    expect(bands.get('foundations')).toBe(foundations / 2 - total / 2)
-    expect(bands.get('web-development')).toBe(foundations + web / 2 - total / 2)
-  })
-
-  it('gives every topic its own row in its band, next to its prerequisites', () => {
-    const rows = bandRows(nodes, DOMAINS)
-    const bands = groupBands(nodes, DOMAINS)
-    const half = BAND_ROW / 2
-    // Alone in their columns, Foundations topics sit on the band's centre line.
-    expect(rows.get('command_line')).toBe(bands.get('foundations'))
-    expect(rows.get('git_basics')).toBe(bands.get('foundations'))
-    const web = bands.get('web-development')
-    expect(rows.get('html_basics')).toBe(web)
+  it("lays a domain's tile out like its own graph: a column per depth, its busiest column setting the height", () => {
+    const tile = domainTile(web)
+    // Five columns (HTML Basics to Deployment Basics); two topics in the busiest.
+    expect(tile.width).toBe(4 * TILE_COLUMN + 2 * TILE_PAD_X)
+    expect(tile.height).toBe(TILE_TOP + TILE_ROW + TILE_BOTTOM)
+    const at = (id) => tile.offsets.get(id)
+    expect(at('html_basics')).toEqual({ x: TILE_PAD_X, y: TILE_TOP + TILE_ROW / 2 })
     // Two topics in a column, one row apart; ties keep the API's order.
-    expect([rows.get('css_basics'), rows.get('javascript_fundamentals')]).toEqual([web - half, web + half])
+    expect([at('css_basics').y, at('javascript_fundamentals').y]).toEqual([TILE_TOP, TILE_TOP + TILE_ROW])
     // Each follows its prerequisite: Flexbox (after CSS) above React Fundamentals (after JavaScript).
-    expect([rows.get('flexbox'), rows.get('react_fundamentals')]).toEqual([web - half, web + half])
-    // Deployment Basics needs React Router and Command Line, far up in Foundations, so it goes above React Hooks.
-    expect(rows.get('deployment_basics')).toBeLessThan(rows.get('react_hooks'))
-    // Every topic in a band stays inside it.
-    for (const node of nodes.filter((n) => n.home_domain === 'web-development')) {
-      expect(Math.abs(rows.get(node.id) - web)).toBeLessThanOrEqual(half)
-    }
+    expect([at('flexbox').y, at('react_fundamentals').y]).toEqual([TILE_TOP, TILE_TOP + TILE_ROW])
+    expect(at('flexbox').x).toBe(TILE_PAD_X + 2 * TILE_COLUMN)
   })
 
-  it("gives each band a top and bottom that meet the next band's, around its centre", () => {
-    const bands = bandExtents(nodes, DOMAINS)
-    const foundations = bands.get('foundations')
-    const web = bands.get('web-development')
-    expect(foundations.bottom).toBe(web.top)
-    expect(foundations.bottom - foundations.top).toBe(1 * BAND_ROW + BAND_PADDING)
-    expect(web.bottom - web.top).toBe(2 * BAND_ROW + BAND_PADDING)
-    expect(foundations.top).toBe(-web.bottom) // the stack is centred on 0
-    expect(groupBands(nodes, DOMAINS).get('web-development')).toBe(web.centre)
+  it("counts only the domain's own prerequisites, so one from another domain doesn't move a topic", () => {
+    // Deployment Basics also needs Command Line (Foundations): only React Router sets its column.
+    const tile = domainTile(web)
+    expect(tile.offsets.get('deployment_basics').x).toBe(tile.offsets.get('react_router').x + TILE_COLUMN)
+  })
+
+  it('fills tiles into rows in order, a tile wider than the limit getting a row of its own', () => {
+    const tiles = [
+      { width: 100, height: 50 },
+      { width: 100, height: 80 },
+      { width: 300, height: 60 },
+      { width: 50, height: 40 },
+    ]
+    const rows = packRows(tiles, 250)
+    expect(rows.map((row) => row.tiles.length)).toEqual([2, 1, 1])
+    expect(rows[0]).toMatchObject({ width: 100 + TILE_GAP + 100, height: 80 })
+    expect(rows[1]).toMatchObject({ width: 300, height: 60 })
+  })
+
+  it('breaks the rows to suit the shape of the view', () => {
+    const tilesFor = (aspect) => mapLayout(nodes, DOMAINS, aspect).tiles
+    // A wide view: both domains side by side, in curriculum order.
+    const [foundations, webTile] = tilesFor(4)
+    expect(foundations).toMatchObject({ id: 'foundations', name: 'Foundations', y: webTile.y })
+    expect(webTile.x).toBe(foundations.x + foundations.width + TILE_GAP)
+    // A square one: one above the other.
+    const [top, bottom] = tilesFor(1)
+    expect(bottom.y).toBe(top.y + top.height + TILE_GAP)
+    expect(bottom.x).toBe(top.x)
+  })
+
+  it('makes the tiles a grid: a row shares its height, and every row is as wide as the widest', () => {
+    const [top, bottom] = mapLayout(nodes, DOMAINS, 1).tiles
+    expect(top.width).toBe(bottom.width)
+    const [foundations, webTile] = mapLayout(nodes, DOMAINS, 4).tiles
+    expect(foundations.height).toBe(webTile.height)
+  })
+
+  it('puts every topic in its own tile, below the room for the name, with the map centred on 0', () => {
+    for (const aspect of [0.5, 1, 4]) {
+      const { positions, tiles } = mapLayout(nodes, DOMAINS, aspect)
+      expect(positions.size).toBe(nodes.length)
+      for (const node of nodes) {
+        const tile = tiles.find((t) => t.id === node.home_domain)
+        const { x, y } = positions.get(node.id)
+        expect(x).toBeGreaterThanOrEqual(tile.x + TILE_PAD_X)
+        expect(x).toBeLessThanOrEqual(tile.x + tile.width - TILE_PAD_X)
+        expect(y).toBeGreaterThanOrEqual(tile.y + TILE_TOP)
+        expect(y).toBeLessThanOrEqual(tile.y + tile.height - TILE_BOTTOM)
+      }
+      const left = Math.min(...tiles.map((t) => t.x))
+      const right = Math.max(...tiles.map((t) => t.x + t.width))
+      const top = Math.min(...tiles.map((t) => t.y))
+      const bottom = Math.max(...tiles.map((t) => t.y + t.height))
+      expect(left + right).toBeCloseTo(0)
+      expect(top + bottom).toBeCloseTo(0)
+    }
   })
 
   it('leaves out domains without topics', () => {
-    const bands = groupBands(nodes, [...DOMAINS, { id: 'empty', name: 'Empty' }])
-    expect([...bands.keys()]).toEqual(['foundations', 'web-development'])
-  })
-
-  it('boxes each domain around its placed topics, with room for its name', () => {
-    const placed = [
-      { id: 'a', home_domain: 'foundations', x: 0, y: 0 },
-      { id: 'b', home_domain: 'foundations', x: 100, y: 50 },
-      { id: 'c', home_domain: 'web-development' },
-    ]
-    const [box, ...rest] = groupBoxes(placed, DOMAINS, 1)
-    expect(rest).toEqual([])
-    // 50 to each side and 40 below for labels, 20 above plus room for the domain's name.
-    expect(box).toMatchObject({ id: 'foundations', name: 'Foundations', x: -50, width: 200 })
-    expect(box.y).toBe(-20 - 20)
-    expect(box.height).toBe(50 + 20 + 40 + 20)
-    // Zoomed out, the name is drawn larger, so it gets more room.
-    expect(groupBoxes(placed, DOMAINS, LABEL_MIN_SCALE / 2)[0].y).toBeLessThan(box.y)
-  })
-
-  it("with bands, each box spans its domain's band, so boxes never overlap at any zoom", () => {
-    // Seen with Python: a topic pulled towards a prerequisite two domains away made boxes overlap.
-    const bands = new Map([
-      ['foundations', { top: -300, centre: -200, bottom: -100 }],
-      ['web-development', { top: -100, centre: 0, bottom: 100 }],
-    ])
-    const placed = [
-      { id: 'a', home_domain: 'foundations', x: 0, y: -250 },
-      { id: 'b', home_domain: 'foundations', x: 100, y: -150 },
-      { id: 'c', home_domain: 'web-development', x: 0, y: 0 },
-    ]
-    for (const scale of [1, 0.2]) {
-      const [foundations, web] = groupBoxes(placed, DOMAINS, scale, bands)
-      expect(foundations).toMatchObject({ x: -50, width: 200, y: -297, height: 194 })
-      expect(web).toMatchObject({ y: -97, height: 194 })
-      expect(foundations.y + foundations.height).toBeLessThan(web.y)
-    }
+    const { tiles } = mapLayout(nodes, [...DOMAINS, { id: 'empty', name: 'Empty' }])
+    expect(tiles.map((t) => t.id)).toEqual(['foundations', 'web-development'])
+    expect(mapLayout([], DOMAINS)).toEqual({ positions: new Map(), tiles: [] })
   })
 
   it('draws each domain behind its topics, with its name larger when zoomed out', () => {
-    const placed = nodes.map((n, i) => ({ ...n, x: i * 10, y: n.home_domain === 'foundations' ? 0 : 100 }))
-    const texts = []
-    const ctx = {
-      save() {},
-      restore() {},
-      beginPath() {},
-      rect() {},
-      fill() {},
-      stroke() {},
-      fillText(text) {
-        texts.push([text, this.font])
-      },
-    }
-    const palette = { primary: '#0f766e', primaryDark: '#134e4a', link: '#cbd5e1' }
-    paintGroups(ctx, 1, placed, DOMAINS, palette)
-    paintGroups(ctx, LABEL_MIN_SCALE / 2, placed, DOMAINS, palette)
-    expect(texts.map(([text]) => text)).toEqual(['Foundations', 'Web Development', 'Foundations', 'Web Development'])
-    const size = (font) => Number.parseFloat(font.split(' ')[1])
+    // Tiles wide enough for their names at any size.
+    const tiles = mapLayout(nodes, DOMAINS, 4).tiles.map((tile) => ({ ...tile, width: 2000 }))
+    const { ctx, texts } = recordingContext()
+    paintGroups(ctx, 1, tiles, palette)
+    paintGroups(ctx, LABEL_MIN_SCALE / 2, tiles, palette)
+    expect(texts.map(({ text }) => text)).toEqual(['Foundations', 'Web Development', 'Foundations', 'Web Development'])
+    expect(ctx.rects.slice(0, 2)).toEqual(tiles.map(({ x, y, width, height }) => ({ x, y, width, height })))
     // Font sizes are in graph units: the size on screen is size * scale.
-    expect(size(texts[0][1])).toBe(12)
-    expect(size(texts[2][1]) * (LABEL_MIN_SCALE / 2)).toBeCloseTo(20)
+    expect(texts[0].size).toBe(12)
+    expect(texts[3].size * (LABEL_MIN_SCALE / 2)).toBeCloseTo(20)
   })
 
-  it('with bands, keeps each domain name above its first row of topics however far out it is zoomed', () => {
+  it('keeps each domain name above its top row and inside its tile however far out it is zoomed', () => {
     // Seen with five domains: zoomed far out, a 20 px name covered the top row of topics.
-    const bands = bandExtents(nodes, DOMAINS)
-    const rows = bandRows(nodes, DOMAINS)
-    const placed = nodes.map((n, i) => ({ ...n, x: i * 10, y: rows.get(n.id) }))
-    const palette = { primary: '#0f766e', primaryDark: '#134e4a', link: '#cbd5e1' }
+    const { positions, tiles } = mapLayout(nodes, DOMAINS, 4)
     for (const scale of [1, LABEL_MIN_SCALE / 2, 0.05]) {
-      const texts = []
-      const ctx = {
-        save() {}, restore() {}, beginPath() {}, rect() {}, fill() {}, stroke() {},
-        fillText(text, x, y) {
-          texts.push({ text, y, size: Number.parseFloat(this.font.split(' ')[1]) })
-        },
-      }
-      paintGroups(ctx, scale, placed, DOMAINS, palette, bands)
+      const { ctx, texts } = recordingContext()
+      paintGroups(ctx, scale, tiles, palette)
       expect(texts).toHaveLength(2)
-      for (const { text, y, size } of texts) {
-        const id = DOMAINS.find((d) => d.name === text).id
-        const firstRow = Math.min(...placed.filter((n) => n.home_domain === id).map((n) => n.y))
+      for (const { text, x, y, size } of texts) {
+        const tile = tiles.find((t) => t.name === text)
+        const firstRow = Math.min(...nodes.filter((n) => n.home_domain === tile.id).map((n) => positions.get(n.id).y))
         expect(y + size).toBeLessThan(firstRow - NODE_RADIUS)
+        expect(size).toBeLessThanOrEqual(TILE_TITLE_ROOM)
+        expect(x + text.length * 0.6 * size).toBeLessThanOrEqual(tile.x + tile.width)
       }
-      // Where there is room, the names keep their usual size on screen.
-      if (scale === LABEL_MIN_SCALE / 2) expect(texts[0].size * scale).toBeCloseTo(20)
-      expect(texts[0].size).toBeLessThanOrEqual(BAND_TITLE_ROOM)
     }
+  })
+
+  it('shrinks a name that would run past the edge of a narrow tile', () => {
+    const narrow = [{ id: 'foundations', name: 'Foundations', x: 0, y: 0, width: 70, height: 200 }]
+    const { ctx, texts } = recordingContext()
+    paintGroups(ctx, 1, narrow, palette)
+    const [{ x, size }] = texts
+    // As much room is left after the name as before it.
+    expect(x + 'Foundations'.length * 0.6 * size).toBeCloseTo(70 - x)
+    expect(size).toBeLessThan(12)
+  })
+
+  it('puts a long name in a narrow tile on two lines when that lets it be larger', () => {
+    // Seen with thirteen domains: "Computer Science Core" shrank to a few pixels on one line.
+    const narrow = [{ id: 'cs-core', name: 'Computer Science Core', x: 0, y: 0, width: 300, height: 300 }]
+    const { ctx, texts } = recordingContext()
+    paintGroups(ctx, 0.25, narrow, palette)
+    expect(texts.map(({ text }) => text)).toEqual(['Computer', 'Science Core'])
+    const [first, second] = texts
+    expect(first.size).toBe(second.size)
+    expect(second.y).toBeGreaterThan(first.y + first.size)
+    // Both lines fit above the top row and inside the tile.
+    expect(second.y + second.size).toBeLessThanOrEqual(TILE_TITLE_ROOM)
+    expect(first.x + 'Science Core'.length * 0.6 * first.size).toBeLessThanOrEqual(300)
+    // Larger than it could be on one line.
+    expect(first.size).toBeGreaterThan((300 - 2 * first.x) / ('Computer Science Core'.length * 0.6))
   })
 })

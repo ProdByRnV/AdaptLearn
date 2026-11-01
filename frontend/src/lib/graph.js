@@ -20,10 +20,20 @@ const FALLBACK_PALETTE = {
   card: '#ffffff',
 }
 
-/** Colours for the canvas, read from the palette tokens in index.css so the graph matches the badges. */
+/** A hex colour (#rrggbb) at the given opacity; other colour formats are returned unchanged. */
+export function withAlpha(colour, alpha) {
+  if (!/^#[0-9a-f]{6}$/i.test(colour)) return colour
+  return colour + Math.round(alpha * 255).toString(16).padStart(2, '0')
+}
+
+/**
+ * Colours for the canvas, read from the palette tokens in index.css so the graph matches the badges.
+ * linkFaint is for links between domains on the whole map, which would otherwise criss-cross it.
+ */
 export function readPalette(element = document.documentElement) {
   const styles = getComputedStyle(element)
   const token = (name, fallback) => styles.getPropertyValue(name).trim() || fallback
+  const link = token('--input', FALLBACK_PALETTE.link)
   return {
     completed: token('--status-completed', FALLBACK_PALETTE.completed),
     in_progress: token('--status-in-progress', FALLBACK_PALETTE.in_progress),
@@ -33,7 +43,8 @@ export function readPalette(element = document.documentElement) {
     primary: token('--primary', FALLBACK_PALETTE.primary),
     primaryDark: token('--primary-dark', FALLBACK_PALETTE.primaryDark),
     muted: token('--muted-foreground', FALLBACK_PALETTE.muted),
-    link: token('--input', FALLBACK_PALETTE.link),
+    link,
+    linkFaint: withAlpha(link, 0.3),
     card: token('--card', FALLBACK_PALETTE.card),
   }
 }
@@ -177,22 +188,25 @@ export function paintNode(node, ctx, scale, { palette, selectedId, related }) {
   ctx.restore()
 }
 
-// --- The whole map: topics grouped by the domain that defines them ------------------------
+// --- The whole map: a tile per domain, packed into rows ------------------------------------
 
+/** Spacing of a domain tile's columns (prerequisite depth within the domain) and rows, in graph units. */
+export const TILE_COLUMN = 100
+export const TILE_ROW = 50
+/** Room either side of a tile's outer columns, for labels, which are wider than a topic. */
+export const TILE_PAD_X = 55
+/** Room above a tile's top row, where the domain's name is drawn, and below its bottom row's labels. */
+export const TILE_TOP = 110
+export const TILE_BOTTOM = 50
+/** The space between neighbouring tiles. */
+export const TILE_GAP = 40
+const TITLE_INSET = 8
+const TITLE_LINE_HEIGHT = 1.1
 /**
- * Height of one row of topics in a domain's band, and the room around each band, in graph units.
- * Half the padding sits above the band's top row, where the domain's name is drawn.
+ * The room for a domain's name above its tile's top row, in graph units: the space above the row,
+ * less a topic's radius and a margin. Far zoomed out, the name shrinks to fit it.
  */
-export const BAND_ROW = 50
-export const BAND_PADDING = 140
-/** The gap left between two domains' boxes, in graph units. */
-const BAND_GAP = 6
-/**
- * The room for a domain's name above its band's top row, in graph units: half the padding and half
- * a row, less a topic's radius and a margin. Far zoomed out, the name shrinks to fit it.
- */
-export const BAND_TITLE_ROOM = BAND_PADDING / 2 + BAND_ROW / 2 - NODE_RADIUS - 16
-const BAND_TITLE_INSET = 8
+export const TILE_TITLE_ROOM = TILE_TOP - NODE_RADIUS - 16
 
 /**
  * Prerequisite depth, as force-graph's left-to-right layout uses for columns: 0 for a topic with no
@@ -215,116 +229,130 @@ export function topicDepths(nodes) {
 }
 
 /**
- * Where each domain's band sits on the whole map: its top, centre and bottom, in curriculum order
- * from the top, each band as tall as its busiest column. The whole stack is centred on 0.
+ * One domain's topics laid out as on the domain's own graph: a column per prerequisite depth within
+ * the domain (prerequisites from other domains don't count) and, within a column, rows TILE_ROW
+ * apart in the order of where their prerequisites are, so lines cross as little as possible; ties
+ * keep the API's order. Positions are offsets from the tile's top-left corner, with the top row
+ * TILE_TOP down.
  */
-export function bandExtents(nodes, groups) {
-  const depths = topicDepths(nodes)
-  const bands = new Map()
-  let top = 0
-  for (const group of groups) {
-    const columns = new Map()
-    for (const node of nodes) {
-      if (node.home_domain !== group.id) continue
-      const depth = depths.get(node.id)
-      columns.set(depth, (columns.get(depth) ?? 0) + 1)
-    }
-    if (columns.size === 0) continue
-    const height = Math.max(...columns.values()) * BAND_ROW + BAND_PADDING
-    bands.set(group.id, { top, centre: top + height / 2, bottom: top + height })
-    top += height
-  }
-  const shift = top / 2
-  for (const band of bands.values()) {
-    band.top -= shift
-    band.centre -= shift
-    band.bottom -= shift
-  }
-  return bands
-}
-
-/** The vertical centre of each domain's band (see bandExtents). */
-export function groupBands(nodes, groups) {
-  return new Map([...bandExtents(nodes, groups)].map(([id, band]) => [id, band.centre]))
-}
-
-/**
- * The row of every topic on the whole map: in its home domain's band, the topics of each column
- * are spaced BAND_ROW apart around the band's centre. Columns are filled left to right, and within
- * one, topics sit in the order of where their prerequisites are (their average row), so lines
- * cross as little as possible; ties keep the API's order.
- */
-export function bandRows(nodes, groups) {
-  const centres = groupBands(nodes, groups)
+export function domainTile(nodes) {
   const depths = topicDepths(nodes)
   const order = new Map(nodes.map((node, i) => [node.id, i]))
-  const rows = new Map()
-  const cells = new Map()
+  const columns = new Map()
   for (const node of nodes) {
-    if (!centres.has(node.home_domain)) continue
-    const key = `${depths.get(node.id)}|${node.home_domain}`
-    if (!cells.has(key)) cells.set(key, { depth: depths.get(node.id), group: node.home_domain, nodes: [] })
-    cells.get(key).nodes.push(node)
+    const depth = depths.get(node.id)
+    if (!columns.has(depth)) columns.set(depth, [])
+    columns.get(depth).push(node)
   }
+  const busiest = Math.max(...[...columns.values()].map((column) => column.length))
+  const middle = TILE_TOP + ((busiest - 1) * TILE_ROW) / 2
+  const offsets = new Map()
   const anchor = (node) => {
-    const placed = node.prerequisites.filter((pre) => rows.has(pre)).map((pre) => rows.get(pre))
-    return placed.length ? placed.reduce((a, b) => a + b, 0) / placed.length : centres.get(node.home_domain)
+    const placed = node.prerequisites.filter((pre) => offsets.has(pre)).map((pre) => offsets.get(pre).y)
+    return placed.length ? placed.reduce((a, b) => a + b, 0) / placed.length : middle
   }
-  for (const cell of [...cells.values()].sort((a, b) => a.depth - b.depth)) {
-    const sorted = cell.nodes
+  for (const depth of [...columns.keys()].sort((a, b) => a - b)) {
+    const sorted = columns
+      .get(depth)
       .map((node) => ({ node, at: anchor(node) }))
       .sort((a, b) => a.at - b.at || order.get(a.node.id) - order.get(b.node.id))
-    sorted.forEach(({ node }, i) => rows.set(node.id, centres.get(cell.group) + (i - (sorted.length - 1) / 2) * BAND_ROW))
+    sorted.forEach(({ node }, i) =>
+      offsets.set(node.id, {
+        x: TILE_PAD_X + depth * TILE_COLUMN,
+        y: middle + (i - (sorted.length - 1) / 2) * TILE_ROW,
+      }),
+    )
+  }
+  return {
+    width: Math.max(...columns.keys()) * TILE_COLUMN + 2 * TILE_PAD_X,
+    height: TILE_TOP + (busiest - 1) * TILE_ROW + TILE_BOTTOM,
+    offsets,
+  }
+}
+
+/** Tiles in curriculum order, filled into rows no wider than `limit` (a tile wider than that gets a row of its own). */
+export function packRows(tiles, limit) {
+  const rows = []
+  for (const tile of tiles) {
+    const row = rows.at(-1)
+    if (row && row.width + TILE_GAP + tile.width <= limit) {
+      row.tiles.push(tile)
+      row.width += TILE_GAP + tile.width
+      row.height = Math.max(row.height, tile.height)
+    } else {
+      rows.push({ tiles: [tile], width: tile.width, height: tile.height })
+    }
   }
   return rows
 }
 
 /**
- * The area each domain covers on the map: across its topics' current positions, with room for
- * labels. Vertically it is the domain's band when `bands` (from bandExtents) are given, so boxes
- * never overlap; otherwise a box around the topics with space at the top for the domain's name.
- * Domains with no placed topics are left out.
+ * The whole map: a tile per domain in curriculum order, filled into rows like words on a page.
+ * Of every way to break the rows, it keeps the one that fits the view (width / height = `aspect`)
+ * at the largest zoom. Tiles in a row share its height, and each row is stretched to the widest,
+ * so the tiles form a grid. Centred on 0. Domains with no topics are left out.
+ * Returns each topic's position and each domain's tile ({id, name, x, y, width, height}).
  */
-export function groupBoxes(nodes, groups, scale = 1, bands = null) {
-  const zoomedOut = scale < LABEL_MIN_SCALE
-  // Labels sit under each topic and are wider than it, so the box leaves more room there.
-  const padX = 50
-  const padTop = 20
-  const padBottom = 40
-  const titleSpace = (zoomedOut ? 30 : 20) / scale
-  return groups.flatMap((group) => {
-    const placed = nodes.filter((n) => n.home_domain === group.id && Number.isFinite(n.x) && Number.isFinite(n.y))
-    if (placed.length === 0) return []
-    const xs = placed.map((n) => n.x)
-    const ys = placed.map((n) => n.y)
-    const band = bands?.get(group.id)
-    const top = band ? band.top + BAND_GAP / 2 : Math.min(...ys) - padTop - titleSpace
-    const bottom = band ? band.bottom - BAND_GAP / 2 : Math.max(...ys) + padBottom
-    return [{
-      id: group.id,
-      name: group.name,
-      x: Math.min(...xs) - padX,
-      y: top,
-      width: Math.max(...xs) - Math.min(...xs) + 2 * padX,
-      height: bottom - top,
-    }]
+export function mapLayout(nodes, groups, aspect = 1) {
+  const tiles = groups.flatMap((group) => {
+    const own = nodes.filter((node) => node.home_domain === group.id)
+    return own.length ? [{ id: group.id, name: group.name, ...domainTile(own) }] : []
   })
+  const positions = new Map()
+  if (tiles.length === 0) return { positions, tiles: [] }
+
+  // Every row width worth trying: the width of each run of consecutive tiles.
+  const limits = new Set()
+  tiles.forEach((_, start) => {
+    let width = -TILE_GAP
+    for (const tile of tiles.slice(start)) limits.add((width += TILE_GAP + tile.width))
+  })
+  let best = null
+  for (const limit of limits) {
+    const rows = packRows(tiles, limit)
+    const width = Math.max(...rows.map((row) => row.width))
+    const height = rows.reduce((sum, row) => sum + row.height, 0) + (rows.length - 1) * TILE_GAP
+    const scale = Math.min(aspect / width, 1 / height)
+    if (!best || scale > best.scale) best = { rows, width, height, scale }
+  }
+
+  const placed = []
+  let y = -best.height / 2
+  for (const row of best.rows) {
+    const extra = (best.width - row.width) / row.tiles.length
+    let x = -best.width / 2
+    for (const tile of row.tiles) {
+      for (const [id, at] of tile.offsets) positions.set(id, { x: x + at.x, y: y + at.y })
+      placed.push({ id: tile.id, name: tile.name, x, y, width: tile.width + extra, height: row.height })
+      x += tile.width + extra + TILE_GAP
+    }
+    y += row.height + TILE_GAP
+  }
+  return { positions, tiles: placed }
 }
 
 /**
- * Draw each domain's area under the topics, named in its corner. Zoomed out, where topic labels
- * are hidden, the names are drawn large so the map reads as its domains; with bands, never larger
- * than the room above the band's top row, so a name doesn't cover topics.
+ * Draw each domain's tile under the topics, named in its corner. Zoomed out, where topic labels
+ * are hidden, the names are drawn large so the map reads as its domains, but never larger than the
+ * room above the tile's top row, or wider than the tile, so a name doesn't cover topics or run
+ * into the next domain. A long name in a narrow tile goes onto two lines when that lets it be larger.
  */
-export function paintGroups(ctx, scale, nodes, groups, palette, bands = null) {
-  const zoomedOut = scale < LABEL_MIN_SCALE
-  const wanted = (zoomedOut ? 20 : 12) / scale
-  const inset = bands ? Math.min(6 / scale, BAND_TITLE_INSET) : 6 / scale
-  const fontSize = bands ? Math.min(wanted, BAND_TITLE_ROOM - inset) : wanted
-  for (const box of groupBoxes(nodes, groups, scale, bands)) {
+export function paintGroups(ctx, scale, tiles, palette) {
+  const wanted = (scale < LABEL_MIN_SCALE ? 20 : 12) / scale
+  const inset = Math.min(6 / scale, TITLE_INSET)
+  const room = TILE_TITLE_ROOM - inset
+  const font = (size) => `600 ${size}px "Geist Variable", system-ui, sans-serif`
+  // The largest size at which these lines fit the tile's width and the room above its top row.
+  const fit = (lines, width) => {
+    const size = Math.min(wanted, room / (1 + (lines.length - 1) * TITLE_LINE_HEIGHT))
+    ctx.font = font(size)
+    const widest = Math.max(...lines.map((line) => ctx.measureText(line).width))
+    return widest > width ? (size * width) / widest : size
+  }
+  for (const tile of tiles) {
     ctx.save()
     ctx.beginPath()
-    ctx.rect(box.x, box.y, box.width, box.height)
+    ctx.rect(tile.x, tile.y, tile.width, tile.height)
     ctx.globalAlpha = 0.06
     ctx.fillStyle = palette.primary
     ctx.fill()
@@ -333,11 +361,19 @@ export function paintGroups(ctx, scale, nodes, groups, palette, bands = null) {
     ctx.strokeStyle = palette.link
     ctx.stroke()
     ctx.globalAlpha = 1
-    ctx.font = `600 ${fontSize}px "Geist Variable", system-ui, sans-serif`
+    const width = tile.width - 2 * inset
+    let lines = [tile.name]
+    let size = fit(lines, width)
+    const split = wrapLabel(tile.name, 0)
+    if (split.length === 2 && fit(split, width) > size) {
+      lines = split
+      size = fit(split, width)
+    }
+    ctx.font = font(size)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     ctx.fillStyle = palette.primaryDark
-    ctx.fillText(box.name, box.x + 8 / scale, box.y + inset)
+    lines.forEach((line, i) => ctx.fillText(line, tile.x + inset, tile.y + inset + i * size * TITLE_LINE_HEIGHT))
     ctx.restore()
   }
 }

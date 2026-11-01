@@ -7,7 +7,6 @@ import { fetchCurrentUser } from '@/api/auth'
 import { tokenStorage } from '@/api/client'
 import { fetchCatalogue } from '@/api/domains'
 import { fetchTopicGraph, fetchTopicMap } from '@/api/topics'
-import { bandExtents, bandRows } from '@/lib/graph'
 import { catalogue, topicGraph, topicMap } from '@/test/fixtures'
 import { deferred, httpError, LEARNER } from '@/test/helpers'
 import { renderAt } from '@/test/render-app'
@@ -357,23 +356,43 @@ describe('the full map', () => {
     expect(fetchTopicGraph).not.toHaveBeenCalled()
   })
 
-  it('groups topics by domain: a band per domain, and each domain drawn behind its topics', async () => {
+  it('groups topics by domain: a tile per domain, each drawn behind its topics, which are fixed in it', async () => {
     await openMap()
-    // Every topic is fixed to its row in its domain's band (set once the graph has mounted).
-    const rows = bandRows(topicMap().nodes, topicMap().domains)
-    await waitFor(() => expect(graph.props.graphData.nodes.every((n) => n.fy === rows.get(n.id))).toBe(true))
+    const { nodes } = graph.props.graphData
+    // Every topic is fixed in place, so there's no left-to-right layout or simulation to wait for.
+    expect(graph.props.dagMode).toBeUndefined()
+    expect(graph.props.cooldownTicks).toBe(1)
+    expect(nodes.every((n) => Number.isFinite(n.fx) && n.fx === n.x && n.fy === n.y)).toBe(true)
     expect(graph.props.onRenderFramePre).toEqual(expect.any(Function))
-    const ctx = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn() }
+    const ctx = {
+      save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(),
+      measureText: vi.fn(() => ({ width: 10 })),
+    }
     act(() => graph.props.onRenderFramePre(ctx, 1))
     expect(ctx.fillText.mock.calls.map(([text]) => text)).toEqual(['Foundations', 'Web Development'])
-    // Each domain's box spans its band (just inside its edges), so neighbouring boxes can't overlap.
-    const bands = [...bandExtents(topicMap().nodes, topicMap().domains).values()]
-    const boxes = ctx.rect.mock.calls.map(([, y, , height]) => [y, y + height])
-    boxes.forEach(([top, bottom], i) => {
-      expect(top).toBeCloseTo(bands[i].top, -1)
-      expect(bottom).toBeCloseTo(bands[i].bottom, -1)
-    })
-    expect(boxes[0][1]).toBeLessThan(boxes[1][0])
+    // Each topic sits inside its own domain's tile, and the tiles don't overlap.
+    const [foundations, web] = ctx.rect.mock.calls.map(([x, y, width, height]) => ({ x, y, width, height }))
+    const inside = (node, tile) =>
+      node.x > tile.x && node.x < tile.x + tile.width && node.y > tile.y && node.y < tile.y + tile.height
+    for (const node of nodes) expect(inside(node, node.home_domain === 'foundations' ? foundations : web)).toBe(true)
+    const apart = foundations.x + foundations.width < web.x || foundations.y + foundations.height < web.y
+    expect(apart).toBe(true)
+  })
+
+  it('draws links between domains faintly, unless they touch the selected topic', async () => {
+    const { user } = await openMap()
+    const across = { source: 'command_line', target: 'deployment_basics' }
+    const within = { source: 'react_router', target: 'deployment_basics' }
+    expect(graph.props.linkColor(across)).toBe('#cbd5e14d')
+    expect(graph.props.linkColor(within)).toBe('#cbd5e1')
+    expect(graph.props.linkDirectionalArrowColor(across)).toBe('#cbd5e14d')
+    await clickNode(user, 'command_line')
+    expect(graph.props.linkColor(across)).toBe('#0f766e')
+  })
+
+  it("a domain's own graph has no faint links", async () => {
+    await open()
+    expect(graph.props.linkColor({ source: 'react_router', target: 'deployment_basics' })).toBe('#cbd5e1')
   })
 
   it('always starts fitted, so it opens on the domains', async () => {

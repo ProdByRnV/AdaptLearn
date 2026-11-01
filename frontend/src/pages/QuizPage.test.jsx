@@ -746,9 +746,17 @@ describe('domains', () => {
     expect(screen.getByRole('button', { name: 'Prepare quiz' })).toBeInTheDocument()
   })
 
-  it('a locked topic lists every missing prerequisite, whichever domain it is in', async () => {
+  it('a locked topic lists every missing prerequisite, naming the domain of one from another domain', async () => {
     await open('deployment_basics')
-    expect(screen.getByText(/Complete React Router and Command Line first\./)).toBeInTheDocument()
+    expect(screen.getByText(/Complete React Router and Command Line \(Foundations\) first\./)).toBeInTheDocument()
+  })
+
+  it("a locked topic doesn't ask for prerequisites already completed", async () => {
+    // Seen in the Phase 32 demo: "Complete Correlation and What Is Machine Learning? first", with the second done.
+    fetchTopicMap.mockResolvedValue(topicMap({ completed: ['command_line'] }))
+    await open('deployment_basics')
+    expect(screen.getByText(/Complete React Router first\./)).toBeInTheDocument()
+    expect(screen.queryByText(/Command Line/)).not.toBeInTheDocument()
   })
 
   it.each([

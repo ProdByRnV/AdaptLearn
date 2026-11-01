@@ -32,7 +32,8 @@ export function TopicList({ topics, selectedId, onSelect, domainNames = null }) 
                     aria-current={topic.id === selectedId ? 'true' : undefined}
                     onClick={() => onSelect(topic.id)}
                     className={cn(
-                      'flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2.5 text-left text-sm transition-colors',
+                      // Wraps so that on a phone a long domain name moves the details under the topic's name.
+                      'flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg border bg-card px-3 py-2.5 text-left text-sm transition-colors',
                       'hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
                       topic.id === selectedId && 'border-primary bg-accent/50',
                     )}
