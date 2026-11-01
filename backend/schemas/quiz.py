@@ -30,6 +30,20 @@ def _unescape_code(text: str) -> str:
     return text
 
 
+# The languages a code block may be tagged with: those the prompt names, and others the domains use.
+_LANGUAGES = (
+    "bash|c|cpp|csharp|cs|css|dart|gdscript|glsl|go|hlsl|html|java|javascript|js|json|kotlin|php|python"
+    "|ruby|rust|sh|shell|solidity|sql|swift|text|toml|ts|typescript|xml|yaml|yml"
+)
+_LANGUAGE_ON_NEXT_LINE = re.compile(rf"```[^\S\n]*\n[^\S\n]*({_LANGUAGES})[^\S\n]*\n", re.IGNORECASE)
+
+
+def _rejoin_fence_language(text: str) -> str:
+    """Models sometimes put a code block's language on the line after its fence ("```" then
+    "gdscript"), which would show the language as the first line of code. Moves it back."""
+    return _LANGUAGE_ON_NEXT_LINE.sub(lambda m: f"```{m.group(1).lower()}\n", text)
+
+
 _FENCED_BLOCK = re.compile(r"\n?```[\w+-]*[^\S\n]*\n?(.*?)\n?```", re.DOTALL)
 _COMMENT_LINE = re.compile(r"^\s*(#|//|--|/\*|\*|<!--)")
 
@@ -148,7 +162,7 @@ class QuizQuestion(BaseModel):
     @field_validator("question", "explanation")
     @classmethod
     def repair_code_blocks(cls, text: str) -> str:
-        repaired = _drop_placeholder_blocks(_unescape_code(text))
+        repaired = _drop_placeholder_blocks(_rejoin_fence_language(_unescape_code(text)))
         if not repaired:
             raise ValueError("must contain text, not only an empty code block")
         return _repaired_maths(repaired)
@@ -169,7 +183,7 @@ class QuizQuestion(BaseModel):
         # letters the quiz page shows next to each option.
         if all(_LETTER_ONLY.match(o) for o in options):
             raise ValueError("options must be answers, not letters referring to the question")
-        return [_plain_outside_code_and_maths(_repaired_maths(_unescape_code(o))) for o in options]
+        return [_plain_outside_code_and_maths(_repaired_maths(_rejoin_fence_language(_unescape_code(o)))) for o in options]
 
 
 class QuizContent(BaseModel):

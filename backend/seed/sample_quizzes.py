@@ -99,7 +99,8 @@ def sample_topic(topic: Topic, domain_name: str, sleep=time.sleep) -> TopicSampl
     else:
         return sample
     try:
-        sample.checks = with_rate_limits(lambda: llm_quiz.check_answers(sample.questions, timeout=30), sleep)
+        rules = llm_quiz.domain_rules(topic_info(topic))
+        sample.checks = with_rate_limits(lambda: llm_quiz.check_answers(sample.questions, timeout=30, rules=rules), sleep)
         sample.problem = ""
     except (llm_quiz.InvalidQuizOutput, APIStatusError) as exc:
         if isinstance(exc, APIStatusError) and exc.status_code == 429:

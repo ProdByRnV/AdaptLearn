@@ -149,3 +149,12 @@ def test_the_default_report_goes_to_the_ignored_review_folder(fake_llm, monkeypa
     files = list((tmp_path / "content-review").glob("foundations-*.md"))
     assert len(files) == 1 and str(files[0]) in out
     assert sample_quizzes.DEFAULT_DIR.name == "content-review"
+
+
+def test_samples_are_checked_under_their_domain_rules(fake_llm, report):
+    # The review should show what the live check would decide.
+    code, _ = run(["--domain", "game-development", "--topic", "game_godot", "--out", str(report)])
+    assert code == 0
+    rule = "Rule: " + sample_quizzes.llm_quiz.DOMAIN_RULES["game-development"]
+    assert fake_llm.calls[0]["messages"][-1]["content"].endswith(rule)
+    assert fake_llm.check_calls[0]["messages"][-1]["content"].endswith(rule)

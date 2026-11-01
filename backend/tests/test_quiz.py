@@ -289,6 +289,26 @@ def test_a_question_that_is_only_a_placeholder_block_is_rejected():
         parse_quiz(quiz_json(q, make_question(1), make_question(2)))
 
 
+def test_a_language_on_the_line_after_its_fence_is_moved_back():
+    # Seen in the Phase 33 samples: "```" then "gdscript" on its own line, in options too, which
+    # would show "gdscript" as the first line of code.
+    q = make_question(
+        0,
+        question="Which line moves the body?\n```\ngdscript\nvelocity.x = speed\n```",
+        options=["```\n csharp\nrb.linearVelocity = v;\n```", "```\nGDScript\nmove_and_slide()\n```", "`move()`", "`slide()`"],
+    )
+    parsed = parse_quiz(quiz_json(q, make_question(1), make_question(2)))[0]
+    assert parsed.question == "Which line moves the body?\n```gdscript\nvelocity.x = speed\n```"
+    assert parsed.options[:2] == ["```csharp\nrb.linearVelocity = v;\n```", "```gdscript\nmove_and_slide()\n```"]
+
+
+def test_a_first_line_that_is_code_is_not_taken_for_a_language():
+    # Only known language names move: a lone word of code such as a variable stays put.
+    question = "What does this print?\n```\nscore\nprint(score)\n```"
+    parsed = parse_quiz(quiz_json(make_question(0, question=question), make_question(1), make_question(2)))[0]
+    assert parsed.question == question
+
+
 # --- generate_questions: retries and fallback ---------------------------------------------
 
 def test_valid_first_answer_uses_ai(fake_llm):

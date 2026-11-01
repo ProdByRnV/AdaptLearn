@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
@@ -74,6 +75,21 @@ DOMAIN_RULES: dict[str, str] = {
         "to them. Never include working exploit code, payloads, malware, step-by-step instructions for "
         "attacking or getting into systems without permission, or ways to evade security controls."
     ),
+    # Sampled quizzes kept writing Godot 3 code, while the topics' resources teach Godot 4. A first
+    # version listing only the engine names led the model to put engine code into every question.
+    "game-development": (
+        "This is a game development topic. Ask about the topic's own ideas: use an engine only when the "
+        "topic is about that engine or a short snippet makes the question clearer, and never mix two "
+        "engines' APIs in one question. When a question uses Godot, write for Godot 4 and GDScript 2.0: "
+        "CharacterBody2D or CharacterBody3D with the built-in velocity property and move_and_slide() "
+        "called with no arguments (a script never declares its own velocity variable), Node3D, @export and "
+        "@onready, await, signal_name.connect(callable) and instantiate(); never Godot 3 names such as "
+        "KinematicBody2D, Spatial, export var, onready var, yield or instance(). When a question uses Unity, "
+        "write for Unity 6 with C# and avoid deprecated APIs. Only use methods, properties, menus, packages "
+        "and settings you are sure exist in those versions; never invent one. Keep options short and put "
+        "longer code in the question. Write each option as one complete string (never split an option "
+        "into several list items), and make the four options differ."
+    ),
 }
 
 CHECK_PROMPT = """You check multiple-choice quiz questions before learners see them. Answer every question yourself,
@@ -111,8 +127,12 @@ def build_user_prompt(topic: TopicInfo, domain_name: str) -> str:
         f"Description: {topic.description}\n"
         f"Difficulty: {topic.difficulty} of 4 ({level})"
     )
-    rules = [DOMAIN_RULES[d] for d in sorted(set(topic.domains)) if d in DOMAIN_RULES]
-    return prompt + "".join(f"\nRule: {rule}" for rule in rules)
+    return prompt + "".join(f"\nRule: {rule}" for rule in domain_rules(topic))
+
+
+def domain_rules(topic: TopicInfo) -> list[str]:
+    """The extra rules for a topic: those of every domain it belongs to, whichever it is quizzed from."""
+    return [DOMAIN_RULES[d] for d in sorted(set(topic.domains)) if d in DOMAIN_RULES]
 
 
 def parse_quiz(raw: str | None) -> list[QuizQuestion]:
@@ -180,11 +200,19 @@ class _CheckResponse(BaseModel):
     checks: list[AnswerCheck]
 
 
-def build_check_prompt(questions: list[QuizQuestion]) -> str:
-    """The questions and options, numbered, without the answer key or explanations."""
-    return "\n\n".join(
+def build_check_prompt(questions: list[QuizQuestion], rules: Sequence[str] = ()) -> str:
+    """The questions and options, numbered, without the answer key or explanations; then the domain
+    rules they were written under, so that a question breaking one is judged unsound."""
+    text = "\n\n".join(
         f"Question {n}: {q.question}\n" + "\n".join(f"{i}. {option}" for i, option in enumerate(q.options))
         for n, q in enumerate(questions, start=1)
+    )
+    if not rules:
+        return text
+    return (
+        text
+        + "\n\nThese questions were written under the following rules. A question that breaks one is not sound."
+        + "".join(f"\nRule: {rule}" for rule in rules)
     )
 
 
@@ -201,11 +229,11 @@ def parse_check(raw: str | None, count: int) -> list[AnswerCheck]:
     return checks
 
 
-def check_answers(questions: list[QuizQuestion], timeout: float) -> list[AnswerCheck]:
+def check_answers(questions: list[QuizQuestion], timeout: float, rules: Sequence[str] = ()) -> list[AnswerCheck]:
     """Ask the model to answer each question independently. Raises on any failure."""
     messages = [
         {"role": "system", "content": CHECK_PROMPT},
-        {"role": "user", "content": build_check_prompt(questions)},
+        {"role": "user", "content": build_check_prompt(questions, rules)},
     ]
     raw = call_groq(
         messages,
@@ -251,21 +279,21 @@ def all_fallback_questions(topic_id: str) -> list[QuizQuestion]:
     return [QuizQuestion.model_validate(item) for item in FALLBACK_QUESTIONS.get(topic_id, [])]
 
 
-def _checked(topic_id: str, questions: list[QuizQuestion], left: float) -> GeneratedQuestions | None:
+def _checked(topic: TopicInfo, questions: list[QuizQuestion], left: float) -> GeneratedQuestions | None:
     """The quiz after the answer check, or None to use the fallback bank (no time to check, the
     check failed, or every question was rejected). A check that fails is not retried: the learner
     is already waiting, and unchecked questions are never served."""
     if left <= 1:
-        logger.warning("Quiz for %s: no time left for the answer check; using fallback", topic_id)
+        logger.warning("Quiz for %s: no time left for the answer check; using fallback", topic.id)
         return None
     try:
-        checks = check_answers(questions, min(CHECK_TIMEOUT_SECONDS, left))
+        checks = check_answers(questions, min(CHECK_TIMEOUT_SECONDS, left), domain_rules(topic))
     except (InvalidQuizOutput, APIStatusError, APIConnectionError, APITimeoutError) as exc:
-        logger.warning("Quiz for %s: answer check failed (%s); using fallback", topic_id, exc)
+        logger.warning("Quiz for %s: answer check failed (%s); using fallback", topic.id, exc)
         return None
-    checked = apply_check(topic_id, questions, checks)
+    checked = apply_check(topic.id, questions, checks)
     if checked is None:
-        logger.warning("Quiz for %s: too many questions failed the answer check; using fallback", topic_id)
+        logger.warning("Quiz for %s: too many questions failed the answer check; using fallback", topic.id)
     return checked
 
 
@@ -297,7 +325,7 @@ def generate_questions(topic: TopicInfo, domain_name: str) -> GeneratedQuestions
                 logger.info("Quiz for %s generated by %s on attempt %d", topic.id, settings.groq_model, attempt)
                 if not settings.quiz_answer_check:
                     return GeneratedQuestions(questions, "ai")
-                checked = _checked(topic.id, questions, TOTAL_BUDGET_SECONDS - (time.monotonic() - started))
+                checked = _checked(topic, questions, TOTAL_BUDGET_SECONDS - (time.monotonic() - started))
                 if checked is not None:
                     return checked
                 break

@@ -248,6 +248,51 @@ def test_real_cybersecurity_quizzes_are_sent_with_the_rule(client, make_user, fa
         assert call["messages"][-1]["content"].endswith("Rule: " + llm_quiz.DOMAIN_RULES["cybersecurity"])
 
 
+GODOT = TopicInfo("game_godot", "Godot & GDScript", "Scenes, nodes and GDScript.", 3, domains=["game-development"])
+
+
+def test_game_development_topics_are_told_to_write_for_godot_4():
+    # Seen in the Phase 31 samples: KinematicBody2D and move_and_slide(velocity), though the
+    # topics' resources teach Godot 4.
+    prompt = llm_quiz.build_user_prompt(GODOT, "Game Development")
+    assert prompt.endswith("Rule: " + llm_quiz.DOMAIN_RULES["game-development"])
+    for wanted in ("Godot 4", "CharacterBody2D", "move_and_slide() called with no arguments", "@export", "Unity 6"):
+        assert wanted in prompt
+    assert "never Godot 3 names such as KinematicBody2D" in prompt
+    # Seen in the Phase 33 samples: a script redeclaring velocity, and options padded with empty
+    # list items or repeated.
+    assert "never declares its own velocity variable" in prompt
+    assert "never split an option into several list items" in prompt and "make the four options differ" in prompt
+    # A first version made the model put engine code into every question, mixing engines too.
+    assert "use an engine only when the topic is about that engine" in prompt
+    assert "never mix two engines' APIs in one question" in prompt
+
+
+def test_the_answer_check_is_told_the_rules_the_questions_were_written_under(fake_llm):
+    # So the check rejects a question that breaks a rule (Godot 3 code passed it in Phase 31).
+    assert generate_questions(GODOT, "Game Development").source == "ai"
+    _, user = fake_llm.check_calls[0]["messages"]
+    assert "Question 1: Sample question number 0?" in user["content"]
+    assert "A question that breaks one is not sound." in user["content"]
+    assert user["content"].endswith("Rule: " + llm_quiz.DOMAIN_RULES["game-development"])
+
+
+def test_an_answer_check_without_rules_is_only_the_questions(fake_llm):
+    generate_questions(TOPIC, "Web Development")
+    _, user = fake_llm.check_calls[0]["messages"]
+    assert "Rule:" not in user["content"] and "not sound" not in user["content"]
+
+
+def test_real_game_development_quizzes_and_their_checks_get_the_rule(client, make_user, fake_llm):
+    _, headers = make_user()
+    known = {"domain": "foundations", "topic_ids": ["programming_concepts"]}
+    assert client.post("/api/topics/mark-known", json=known, headers=headers).status_code == 200
+    assert client.get("/api/quiz/generate/game_what_is_gamedev", headers=headers).status_code == 200
+    rule = "Rule: " + llm_quiz.DOMAIN_RULES["game-development"]
+    assert fake_llm.calls[0]["messages"][-1]["content"].endswith(rule)
+    assert fake_llm.check_calls[0]["messages"][-1]["content"].endswith(rule)
+
+
 # --- Maths ---------------------------------------------------------------------------------
 
 def test_the_prompt_asks_for_latex_between_unambiguous_delimiters():
